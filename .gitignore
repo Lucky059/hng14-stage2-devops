@@ -13,3 +13,10 @@ frontend/node_modules/
 # Docker artifacts
 *.log
 
+# Ignore environment files
+.env
+api/.env
+worker/.env
+frontend/.env
+
+
