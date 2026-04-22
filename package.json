@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "lint": "eslint frontend  app.js"
+    "lint": "eslint frontend "
   },
   "devDependencies": {
     "eslint": "^10.2.1",
