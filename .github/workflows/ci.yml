@@ -23,7 +23,7 @@ jobs:
       - name: Run flake8
         run: flake8 api worker
       - name: Run eslint
-        run: eslint frontend/src
+        run: eslint frontend
       - name: Run hadolint
         run: hadolint Dockerfile api/Dockerfile worker/Dockerfile frontend/Dockerfile
 
