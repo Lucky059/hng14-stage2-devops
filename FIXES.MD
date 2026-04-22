@@ -37,6 +37,9 @@ Impact:
 File: frontend/package.json
 Issue:
   Package.json was missing metadata and used an older axios version. While dependencies and scripts were correct, the file lacked clarity for reviewers.
+- Migrated `eslint.config.js` to flat config system.
+- Replaced `env` with `languageOptions.globals` to define Node.js globals (`require`, `__dirname`, `console`, etc.).
+- This resolved ESLint error: `"env" key is not supported in flat config system`.
 
 
 # Fixes
