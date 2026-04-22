@@ -1,6 +1,9 @@
 {
+  "scripts": {
+    "lint": "eslint frontend views app.js"
+  },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "eslint": "^10.2.1"
+    "eslint": "^10.2.1",
+    "@eslint/js": "^10.0.1"
   }
 }
