@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
 
+# Ensure the workflow has permission to push packages when using GITHUB_TOKEN or a PAT
 permissions:
   contents: read
   packages: write
@@ -20,7 +21,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install linters
+      - name: Install linters and tools
         run: |
           pip install flake8
           npm ci
@@ -75,31 +76,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Build and push images to GHCR
+      - name: Build and push API image
         uses: docker/build-push-action@v4
         with:
-          context: api
-          file: api/Dockerfile
+          context: ./api
+          file: ./api/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/api:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/api:latest
 
-      - name: Build and push worker
+      - name: Build and push Worker image
         uses: docker/build-push-action@v4
         with:
-          context: worker
-          file: worker/Dockerfile
+          context: ./worker
+          file: ./worker/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/worker:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/worker:latest
 
-      - name: Build and push frontend
+      - name: Build and push Frontend image
         uses: docker/build-push-action@v4
         with:
-          context: frontend
-          file: frontend/Dockerfile
+          context: ./frontend
+          file: ./frontend/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/frontend:${{ github.sha }}
@@ -118,30 +119,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      - name: Run Trivy scans (containerized)
+      - name: Run Trivy scans (containerized) and produce SARIF
         run: |
+          set -euo pipefail
+
+          # scan API
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v ${{ runner.temp }}/trivy-cache:/root/.cache/ \
             aquasec/trivy:latest image \
             --severity CRITICAL --exit-code 1 --format sarif -o trivy-api.sarif ghcr.io/${{ github.repository_owner }}/api:${{ github.sha }} || true
 
+          # scan Worker
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v ${{ runner.temp }}/trivy-cache:/root/.cache/ \
             aquasec/trivy:latest image \
             --severity CRITICAL --exit-code 1 --format sarif -o trivy-worker.sarif ghcr.io/${{ github.repository_owner }}/worker:${{ github.sha }} || true
 
+          # scan Frontend
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v ${{ runner.temp }}/trivy-cache:/root/.cache/ \
             aquasec/trivy:latest image \
             --severity CRITICAL --exit-code 1 --format sarif -o trivy-frontend.sarif ghcr.io/${{ github.repository_owner }}/frontend:${{ github.sha }} || true
 
-          # Fail the job if any of the scans returned exit code 1 (CRITICAL found)
-          if grep -q '"toolName": "Trivy"' trivy-*.sarif 2>/dev/null; then
-            # check for CRITICAL severities in SARIF (simple heuristic)
-            if grep -q '"severity": "CRITICAL"' trivy-*.sarif 2>/dev/null; then
-              echo "CRITICAL vulnerabilities found; failing job"
-              exit 1
-            fi
+          # If any SARIF contains CRITICAL, fail the job
+          if grep -q '"severity": "CRITICAL"' trivy-*.sarif 2>/dev/null; then
+            echo "CRITICAL vulnerabilities found; failing job"
+            exit 1
           fi
 
       - name: Upload scan results
@@ -155,8 +158,19 @@ jobs:
     needs: security_scan
     steps:
       - uses: actions/checkout@v4
+
+      - name: Log in to GHCR (for docker compose pulls if needed)
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
       - name: Start stack
-        run: docker compose up -d
+        run: |
+          # If your docker-compose pulls images from GHCR, ensure compose file references ghcr.io/...:${{ github.sha }} or :latest
+          docker compose up -d
+
       - name: Run integration test
         run: |
           sleep 10
@@ -171,6 +185,7 @@ jobs:
           done
           echo "Integration test failed"
           exit 1
+
       - name: Tear down
         if: always()
         run: docker compose down -v
