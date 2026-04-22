@@ -226,3 +226,6 @@ Added decode_responses=True so job IDs and statuses are returned as strings with
 - Fixed pytest ImportError: `fastapi` not found.
 - Added `fastapi`, `uvicorn`, `pytest`, and `pytest-cov` to `requirements.txt`.
 - Ensured Dockerfile installs all dependencies via `pip install -r requirements.txt`.
+
+- Fixed pytest RuntimeError: Starlette TestClient requires `httpx`.
+- Added `httpx` to `requirements.txt` so FastAPI tests can run.
