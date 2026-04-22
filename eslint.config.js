@@ -1,6 +1,7 @@
-import js from "@eslint/js";
+// eslint.config.js
+const js = require("@eslint/js");
 
-export default [
+module.exports = [
   js.configs.recommended,
   {
     files: ["frontend/**/*.js", "views/**/*.js", "app.js"],
@@ -9,9 +10,8 @@ export default [
       sourceType: "module",
     },
     rules: {
-      // Add or override rules here
       "no-unused-vars": "warn",
-      "no-console": "off",
+      "no-console": "off"
     },
   },
 ];
