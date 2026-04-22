@@ -118,4 +118,21 @@ Fix:
 
 Rewrote the Redis client initialization block to use proper Python syntax and environment variables.
 
-Added decode_responses=True so job IDs and statuses are returned as strings without manual decoding. 
+Added decode_responses=True so job IDs and statuses are returned as strings without manual decoding.
+
+
+
+# Lint Fixes for main.py
+
+- Added 2 blank lines before each top-level function (`E302`).
+- Added 2 blank lines after each function (`E305`).
+- Removed trailing blank line at end of file (`W391`).
+
+
+
+
+
+## lint fixes for worker.py
+- Added 2 blank lines before `process_job` function (`E302`).
+- Added 2 blank lines after `process_job` before `while True` loop (`E305`).
+- Removed trailing blank line at end of file (`W391`).
