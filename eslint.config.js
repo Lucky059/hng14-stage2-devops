@@ -1,28 +1,23 @@
-
 // eslint.config.js
 const js = require("@eslint/js");
 
 module.exports = [
-  js.configs.recommended,
   {
-    files: [
-      "frontend/**/*.js",
-      "frontend/app.js"
-    ],
+    files: ["**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "commonjs",
       globals: {
         require: "readonly",
+        module: "readonly",
         __dirname: "readonly",
         console: "readonly",
-        module: "readonly",
         process: "readonly"
       }
     },
     rules: {
-      "no-unused-vars": "warn",
-      "no-console": "off"
+      ...js.configs.recommended.rules,
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
     }
   }
 ];
