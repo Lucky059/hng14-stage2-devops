@@ -218,3 +218,7 @@ Added decode_responses=True so job IDs and statuses are returned as strings with
 - Fixed invalid paths (`views`, `app.js`) in lint script.
 - Fixed `no-undef` errors for Node globals by configuring flat config properly.
 - Current lint run passes with only **warnings** about unused variables.
+
+- Fixed CI pytest step: original command pointed to `api/tests`, which does not exist.
+- Added `tests/test_health.py` to validate `/health` endpoint.
+- Updated workflow to run `pytest tests --cov=api --cov-report=xml`.
