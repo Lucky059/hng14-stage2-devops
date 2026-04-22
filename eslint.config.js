@@ -4,14 +4,21 @@ const js = require("@eslint/js");
 module.exports = [
   js.configs.recommended,
   {
-    files: ["frontend/**/*.js", "views/**/*.js", "app.js"],
+    files: [
+      "frontend/**/*.js",
+      "app.js"
+    ],
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "module",
+      sourceType: "commonjs"
+    },
+    env: {
+      node: true
     },
     rules: {
       "no-unused-vars": "warn",
       "no-console": "off"
-    },
-  },
+    }
+  }
 ];
+
