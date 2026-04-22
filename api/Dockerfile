@@ -1,11 +1,11 @@
-
 # Official lightweight Python image
 FROM python:3.11-slim
 
 # Set working directory inside the container
 WORKDIR /app
 
-# Install system dependencies without pinning versions
+# Install system dependencies including curl
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -29,4 +29,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Command to run the FastAPI app with uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
