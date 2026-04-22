@@ -1,15 +1,12 @@
 {
   "scripts": {
-<<<<<<< HEAD
-    "lint": "eslint frontend views app.js"
-=======
     "lint": "eslint frontend/app.js"
->>>>>>> cb161f157db295752174f925a0e5035a81192e5f
   },
   "devDependencies": {
     "eslint": "^10.2.1",
     "@eslint/js": "^10.0.1"
   }
 }
+
 
 
