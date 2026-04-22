@@ -38,6 +38,32 @@ File: frontend/package.json
 Issue:
   Package.json was missing metadata and used an older axios version. While dependencies and scripts were correct, the file lacked clarity for reviewers.
 
+
+# Fixes
+
+## ESLint Configuration
+- Added `eslint.config.js` with proper Node.js environment settings:
+  - Set `env: { node: true }` to recognize Node globals (`require`, `__dirname`, `console`).
+  - Configured `sourceType: "commonjs"` to match CommonJS usage.
+  - Scoped linting to `frontend/**/*.js` and `frontend/app.js` only.
+  - Disabled `no-console` rule and downgraded `no-unused-vars` to warnings.
+
+## Package.json
+- Added a `lint` script: `"lint": "eslint frontend/app.js"`.
+- Ensured `eslint` and `@eslint/js` are listed under `devDependencies`.
+
+## CI/CD Workflow
+- Updated GitHub Actions workflow:
+  - Replaced global ESLint install with `npm ci` to install local devDependencies.
+  - Changed lint step to run `npm run lint`.
+
+## Errors Resolved
+- Fixed `Cannot find module '@eslint/js'` error in CI.
+- Fixed `Missing script: "lint"` error by adding the script.
+- Fixed `No files matching the pattern "views"` and `"app.js"` errors by correcting paths.
+- Fixed `no-undef` errors for Node globals by configuring ESLint environment.
+
+
 Fix:
   I updated package.json to:
     - Add a description and license field.
