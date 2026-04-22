@@ -81,4 +81,61 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Trivy
-        run
+        run: |
+          sudo apt-get update && sudo apt-get install -y trivy
+      - name: Scan images
+        run: |
+          trivy image --severity CRITICAL --exit-code 1 --format sarif -o trivy-api.sarif localhost:5000/api:latest
+          trivy image --severity CRITICAL --exit-code 1 --format sarif -o trivy-worker.sarif localhost:5000/worker:latest
+          trivy image --severity CRITICAL --exit-code 1 --format sarif -o trivy-frontend.sarif localhost:5000/frontend:latest
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan
+          path: "*.sarif"
+
+  integration_test:
+    runs-on: ubuntu-latest
+    needs: security_scan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up -d
+      - name: Run integration test
+        run: |
+          sleep 10
+          JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r .job_id)
+          for i in {1..30}; do
+            STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r .status)
+            if [ "$STATUS" = "completed" ]; then
+              echo "Integration test passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Integration test failed"
+          exit 1
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: integration_test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rolling update
+        run: |
+          docker compose up -d new_api
+          for i in {1..30}; do
+            STATUS=$(curl -s http://localhost:8000/health | jq -r .status)
+            if [ "$STATUS" = "ok" ]; then
+              docker compose stop old_api
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Deploy aborted: health check failed"
+          docker compose stop new_api
+          exit 1
