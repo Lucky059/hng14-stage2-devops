@@ -222,3 +222,7 @@ Added decode_responses=True so job IDs and statuses are returned as strings with
 - Fixed CI pytest step: original command pointed to `api/tests`, which does not exist.
 - Added `tests/test_health.py` to validate `/health` endpoint.
 - Updated workflow to run `pytest tests --cov=api --cov-report=xml`.
+
+- Fixed pytest ImportError: `fastapi` not found.
+- Added `fastapi`, `uvicorn`, `pytest`, and `pytest-cov` to `requirements.txt`.
+- Ensured Dockerfile installs all dependencies via `pip install -r requirements.txt`.
