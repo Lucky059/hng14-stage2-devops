@@ -1,3 +1,4 @@
+
 {
   "name": "hng14-stage2-devops",
   "version": "1.0.0",
@@ -10,13 +11,10 @@
   },
   "dependencies": {
     "express": "^4.18.2"
-    // add other runtime dependencies here
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
     "eslint": "^9.14.0",
     "jest": "^29.7.0"
-    // add other dev dependencies here
   }
 }
-
