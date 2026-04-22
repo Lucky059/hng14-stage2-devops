@@ -39,4 +39,3 @@ def get_job(job_id: str):
 @app.post("/submit")
 def submit_job():
     return create_job()
-
