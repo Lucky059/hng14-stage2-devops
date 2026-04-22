@@ -136,3 +136,31 @@ Added decode_responses=True so job IDs and statuses are returned as strings with
 - Added 2 blank lines before `process_job` function (`E302`).
 - Added 2 blank lines after `process_job` before `while True` loop (`E305`).
 - Removed trailing blank line at end of file (`W391`).
+
+# Lint Fixes Summary
+
+## api/main.py
+- Added two blank lines before each top-level function (`E302`).
+- Added two blank lines after each function definition (`E305`).
+- Removed trailing blank line at end of file (`W391`).
+
+## worker/worker.py
+- Added two blank lines before the `process_job` function (`E302`).
+- Added two blank lines after the `process_job` function before the `while True` loop (`E305`).
+- Removed trailing blank line at end of file (`W391`).
+- Removed trailing whitespace on line 24 (`W291`).
+
+## frontend (ESLint)
+- Fixed CI workflow path: changed ESLint target from `frontend/src` to `frontend` since no `src` folder exists.
+- Added new `eslint.config.js` file for ESLint v10 compatibility (flat config system).
+- **Updated `package.json` devDependencies:**
+  - Added `eslint` (`^10.2.1`) to enable linting.
+  - Added `@eslint/js` (`^10.2.1`) to provide recommended ESLint rules.
+- Created a `lint` npm script (`npm run lint`) to run ESLint on `frontend`, `views`, and `app.js`.
+- Updated GitHub Actions workflow to run `npx eslint frontend views app.js`.
+
+## Outcome
+- Python files (`api/main.py` and `worker/worker.py`) now pass `flake8` with no errors.
+- Frontend JavaScript files now lint successfully with ESLint v10 using the new config and dependencies.
+- CI/CD pipeline lint stage should now complete without errors.
+
