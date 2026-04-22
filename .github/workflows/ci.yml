@@ -30,7 +30,7 @@ jobs:
         run: npm run lint
 
       - name: Run hadolint
-        run: hadolint Dockerfile api/Dockerfile worker/Dockerfile frontend/Dockerfile
+        run: hadolint api/Dockerfile worker/Dockerfile frontend/Dockerfile
 
   test:
     runs-on: ubuntu-latest
