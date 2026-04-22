@@ -10,20 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install linters
         run: |
           pip install flake8
-          npm install -g eslint
+          npm ci
           curl -sSL https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 -o /usr/local/bin/hadolint
           chmod +x /usr/local/bin/hadolint
+
       - name: Run flake8
         run: flake8 api worker
+
       - name: Run eslint
-        run: eslint frontend
+        run: npm run lint
+
       - name: Run hadolint
         run: hadolint Dockerfile api/Dockerfile worker/Dockerfile frontend/Dockerfile
 
