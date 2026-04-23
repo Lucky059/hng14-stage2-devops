@@ -1,123 +1,64 @@
 
-Fix.md – CI/CD & Codebase Improvements
+FIXES.md – CI/CD & Codebase Improvements
 Sensitive Files
-Problem: api/.env with secrets (REDIS_PASSWORD, APP_ENV) was committed.
+Problem: api/.env containing secrets (REDIS_PASSWORD) was committed to version control.
+
+Fix: * Purged sensitive files using git rm --cached api/.env.
+
+Added api/.env and .env to .gitignore.
+
+Provided api/.env.example with placeholders for secure local development.
+
+Redis & Worker Configuration
+Problem: Hardcoded connection strings (localhost:6379) and broken syntax in worker.py caused container crashes.
 
 Fix:
 
-Removed with git rm --cached api/.env.
+Implemented dynamic environment variables for REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD.
 
-Added api/.env to .gitignore.
+Set decode_responses=True to ensure consistent string handling from Redis.
 
-Created api/.env.example with placeholders (e.g., REDIS_PASSWORD=changeme).
+Standardized the QUEUE_NAME variable to prevent "job" hardcoding.
 
-Updated code to load values from environment variables at runtime.
-
-Redis Configuration
-Problem: Redis host/port hardcoded to localhost:6379 in api/main.py and worker/worker.py.
-
-Impact: Containers could not connect to Redis service.
+API & Frontend Alignment
+Problem: Missing /health endpoint caused container unhealthiness; hardcoded API URLs in app.js broke frontend-to-backend communication.
 
 Fix:
 
-Use environment variables:
+Added a FastAPI @app.get("/health") route for Docker/Compose healthchecks.
 
-python
-host=os.getenv("REDIS_HOST", "redis")
-port=int(os.getenv("REDIS_PORT", 6379))
-password=os.getenv("REDIS_PASSWORD", None)
-r = redis.Redis(host=host, port=port, password=password, decode_responses=True)
-Added QUEUE_NAME env variable instead of hardcoding "job".
+Implemented a /submit alias to match the frontend's expected endpoint.
 
-Added decode_responses=True so Redis returns strings.
+Refactored frontend API_URL to use process.env.API_URL || "http://api:8000".
 
-API Healthcheck
-Problem: API container marked unhealthy because /health endpoint was missing.
+Recent CI/CD Pipeline Improvements (The "Sprint" Wins)
+Docker Optimization:
 
-Fix: Added FastAPI route:
+Problem: Single-stage builds resulted in bloated images and linting errors (Hadolint).
 
-python
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-API Route Mismatch
-Problem: Frontend called /submit but API only exposed /jobs.
+Fix: Implemented Multi-stage Docker builds for API and Frontend. Used python:3.11-slim-bookworm to reduce attack surface and pinned package versions (e.g., curl=7.88.*) to satisfy strict security linting.
 
-Fix: Added /submit alias route pointing to job creation logic.
+Security Scanning (Trivy):
 
-Frontend Configuration
-Problem: API URL hardcoded to http://localhost:8000 in frontend/app.js.
+Problem: Security scans were failing because images were pushed to a local registry in a different job, becoming unreachable for the scanner.
 
-Impact: Frontend couldn’t reach API in containers.
+Fix: Unified the Build and Scan stages. Added ignore-unfixed: true to the Trivy configuration to prioritize actionable security threats while allowing the pipeline to generate mandatory SARIF reports.
 
-Fix:
+Integration Testing:
 
-javascript
-const API_URL = process.env.API_URL || "http://api:8000";
-Frontend Package.json & ESLint
-Problems:
+Problem: docker compose up failed in CI due to missing environment variables and job isolation.
 
-Missing metadata, outdated axios.
+Fix: Updated the CI workflow to dynamically generate dummy .env files during the runner's execution. Added a 30-40s health-buffer and used docker compose up -d --build to ensure all microservices are healthy and reachable before asserting status via curl.
 
-ESLint misconfigured (old env key, missing devDependencies).
+Python Pathing (Pytest):
 
-Fixes:
+Problem: ModuleNotFoundError: No module named 'main' during the Test stage.
 
-Added description and license fields.
-
-Upgraded axios to latest stable.
-
-Migrated to ESLint v10 flat config (eslint.config.js).
-
-Defined Node.js globals via languageOptions.globals.
-
-Added lint script: "lint": "eslint frontend/app.js".
-
-Updated CI workflow to run npm ci && npm run lint.
-
-Worker Service
-Problems:
-
-Redis client initialization had broken syntax (duplicated port, stray parentheses).
-
-Caused runtime errors and container startup failures.
-
-Fixes:
-
-Rewrote initialization block with proper env variables and syntax.
-
-Added decode_responses=True.
-
-Corrected indentation and removed stray whitespace.
-
-Linting
-Python (flake8):
-
-Added blank lines before/after functions (E302/E305).
-
-Removed trailing blank lines (W391) and whitespace (W291).
-
-Frontend (ESLint):
-
-Scoped linting to frontend/**/*.js and frontend/app.js.
-
-Disabled no-console, downgraded no-unused-vars to warnings.
-
-CI workflow corrected to lint actual paths.
+Fix: Explicitly exported PYTHONPATH=$PYTHONPATH:$(pwd)/api in the GitHub Actions runner, allowing the test suite to correctly locate the FastAPI application.
 
 Outcome
-Secrets removed from repo and replaced with .env.example.
+Pipeline Sequence: Lint → Test → Build → Security Scan → Integration Test → Deploy.
 
-Redis connections now work in containerized deployments.
+Status: All 6 stages are green. Microservices are fully containerized, secure, and pass automated health assertions.
 
-API healthcheck passes, dependent services start reliably.
-
-Frontend connects to API via environment variable.
-
-Package.json updated, ESLint configured correctly, CI lint stage passes.
-
-Worker service runs without syntax errors.
-
-All Python and JS files pass lint checks.
-
-CI/CD pipeline stable and secure.
+Artifacts: Automated generation of Coverage Reports (XML) and Security Audits (SARIF).
