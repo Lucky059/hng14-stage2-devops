@@ -2,37 +2,34 @@
 set -e
 
 API_URL="http://localhost:8000"
+echo "🧪 Running End-to-End Job Lifecycle Test..."
 
-echo "🧪 Starting Job Lifecycle Integration Test..."
-
-# 1. Submit a job via the API
+# 1. Post a Job
 RESPONSE=$(curl -s -X POST "$API_URL/jobs")
-JOB_ID=$(echo $RESPONSE | jq -r '.job_id')
+JOB_ID=$(echo $RESPONSE | grep -oP '(?<="job_id":")[^"]+')
 
-if [ "$JOB_ID" == "null" ]; then
-  echo "❌ Failed to submit job"
+if [ -z "$JOB_ID" ]; then
+  echo "❌ Error: Could not retrieve Job ID"
   exit 1
 fi
 
-echo "✅ Job submitted! ID: $JOB_ID"
+echo "✅ Job Created: $JOB_ID"
 
-# 2. Poll until status is 'completed'
-MAX_ATTEMPTS=20
-ATTEMPT=0
-while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-  STATUS_RES=$(curl -s "$API_URL/jobs/$JOB_ID")
-  STATUS=$(echo $STATUS_RES | jq -r '.status')
-  
-  echo "⏳ Current Job Status: $STATUS"
+# 2. Poll for Completion
+MAX_RETRIES=10
+COUNT=0
+while [ $COUNT -lt $MAX_RETRIES ]; do
+  STATUS=$(curl -s "$API_URL/jobs/$JOB_ID" | grep -oP '(?<="status":")[^"]+')
+  echo "⏳ Status: $STATUS ($((COUNT+1))/$MAX_RETRIES)"
   
   if [ "$STATUS" == "completed" ]; then
-    echo "🎉 Integration Test Passed: Job reached completed state!"
+    echo "🎉 Success: Job finished processing!"
     exit 0
   fi
   
-  sleep 3
-  ATTEMPT=$((ATTEMPT+1))
+  sleep 5
+  COUNT=$((COUNT+1))
 done
 
-echo "❌ Integration Test Failed: Job timed out"
+echo "❌ Failure: Job did not complete in time"
 exit 1
