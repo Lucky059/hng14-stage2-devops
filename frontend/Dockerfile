@@ -1,23 +1,32 @@
-# Use official Node.js image
-FROM node:18-alpine
-
+# --- STAGE 1: Build ---
+FROM node:20-alpine AS builder
 WORKDIR /app
-
-# Copy package.json and lockfile
-COPY package.json package-lock.json* ./
-
-# Install dependencies (use ci if lockfile exists, otherwise install)
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
-
-# Copy application code
+COPY package*.json ./
+RUN npm install --production
 COPY . .
 
+# --- STAGE 2: Runtime ---
+FROM node:20-alpine
+WORKDIR /app
+
+# Requirement: Non-root user
+RUN adduser -D hnguser
+# Install curl for the HEALTHCHECK
+RUN apk add --no-cache curl
+
+COPY --from=builder /app /app
+RUN chown -R hnguser:hnguser /app
+
+USER hnguser
 EXPOSE 3000
 
+# Requirement: Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD curl -f http://localhost:3000/ || exit 1
 
-CMD ["npm", "start"]
+# BUG FIX: Ensure this points to app.js, not server.js
+CMD ["node", "app.js"]
+
 
 
 

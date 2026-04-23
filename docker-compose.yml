@@ -1,83 +1,73 @@
-version: "3.8"
-
 services:
-  redis:
-    image: redis:7-alpine
-    command: ["sh", "-c", "if [ -n \"${REDIS_PASSWORD}\" ]; then redis-server --requirepass \"${REDIS_PASSWORD}\"; else redis-server; fi"]
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+  api:
+    build: ./api
+    env_file: ./api/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
     networks:
-      - internal
-    healthcheck:
-      test: ["CMD-SHELL", "if [ -n \"${REDIS_PASSWORD}\" ]; then redis-cli -a \"${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - app_network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  frontend:
+    build: ./frontend
+    env_file: ./frontend/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: always
+    networks:
+      - app_network
     deploy:
       resources:
         limits:
           cpus: "0.25"
-          memory: "256M"
-
-  api:
-    build: ./api
-    # env values fall back to defaults if not provided by env file or environment
-    environment:
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - DATABASE_URL=${DATABASE_URL:-}
-      - OTHER_API_VAR=${OTHER_API_VAR:-}
-    networks:
-      - internal
-    depends_on:
-      redis:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+          memory: 256M
 
   worker:
     build: ./worker
-    environment:
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - OTHER_WORKER_VAR=${OTHER_WORKER_VAR:-}
-    networks:
-      - internal
+    env_file: ./worker/.env
     depends_on:
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,sys; import redis; r=redis.Redis(host=os.getenv('REDIS_HOST','redis'), port=int(os.getenv('REDIS_PORT',6379)), password=os.getenv('REDIS_PASSWORD') or None); sys.exit(0) if r.ping() else sys.exit(1)\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  frontend:
-    build: ./frontend
-    environment:
-      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - OTHER_FRONTEND_VAR=${OTHER_FRONTEND_VAR:-}
+    restart: always
     networks:
-      - internal
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
+      - app_network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    # BUG FIX: Force Redis to use the password from your .env
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      # BUG FIX: Authenticate the healthcheck ping with the password
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: always
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
 networks:
-  internal:
+  app_network:
+    name: app_network
     driver: bridge

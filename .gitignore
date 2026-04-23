@@ -18,5 +18,30 @@ frontend/node_modules/
 api/.env
 worker/.env
 frontend/.env
+# Secrets and Environment Variables (CRITICAL)
+.env
+.env.local
+.env.dev
+.env.prod
 
+# Python 
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Node.js (Frontend)
+node_modules/
+npm-debug.log*
+
+# Docker
+.docker/
+
+# OS specific
+.DS_Store
+Thumbs.db
 
