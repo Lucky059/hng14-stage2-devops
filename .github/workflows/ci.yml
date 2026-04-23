@@ -13,23 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Lint Python (Flake8)
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
       - name: Lint Dockerfiles (Hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
           ignore: DL3008
-
-      - name: Lint Frontend (ESLint)
-        run: |
-          cd frontend
-          npm install
-          npx eslint . --ext .js,.jsx --fix-dry-run || echo "Eslint check finished"
 
   # 2. TEST
   test:
@@ -38,18 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Run Unit Tests with Coverage
-        run: |
-          cd api
-          pip install -r requirements.txt pytest pytest-cov httpx fakeredis
+      - run: |
+          cd api && pip install -r requirements.txt pytest pytest-cov httpx fakeredis
           export PYTHONPATH=$PYTHONPATH:$(pwd)
           pytest --cov=./ --cov-report=xml
-      - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: python-coverage
           path: api/coverage.xml
@@ -59,24 +44,18 @@ jobs:
     name: Build Stage
     needs: test
     runs-on: ubuntu-latest
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
     steps:
       - uses: actions/checkout@v4
-      - name: Build and Push to Local Registry
+      - name: Build and Save Images
         run: |
-          # Build API
-          docker build -t localhost:5000/hng-api:${{ github.sha }} ./api
-          docker tag localhost:5000/hng-api:${{ github.sha }} localhost:5000/hng-api:latest
-          docker push localhost:5000/hng-api:latest
-          # Build Worker & Frontend
-          docker build -t localhost:5000/hng-worker:latest ./worker
-          docker push localhost:5000/hng-worker:latest
-          docker build -t localhost:5000/hng-frontend:latest ./frontend
-          docker push localhost:5000/hng-frontend:latest
+          docker build -t hng-api:latest ./api
+          docker build -t hng-worker:latest ./worker
+          docker build -t hng-frontend:latest ./frontend
+          docker save hng-api:latest hng-worker:latest hng-frontend:latest > full_stack.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-stack-images
+          path: full_stack.tar
 
   # 4. SECURITY SCAN
   security_scan:
@@ -84,16 +63,20 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: full-stack-images
+      - name: Load Image
+        run: docker load < full_stack.tar
       - name: Scan API Image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'localhost:5000/hng-api:latest'
+          image-ref: 'hng-api:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL'
           exit-code: 1 
-      - name: Upload SARIF Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: trivy-results
           path: trivy-results.sarif
@@ -105,10 +88,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Stack
+      - uses: actions/download-artifact@v4
+        with:
+          name: full-stack-images
+      - name: Load Images & Run Stack
         run: |
-          docker compose up -d --build
-          echo "Waiting for services to stabilize..."
+          docker load < full_stack.tar
+          docker compose up -d
+          echo "Waiting for services..."
           sleep 30
       - name: Run Lifecycle Integration Test
         run: |
