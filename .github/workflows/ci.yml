@@ -1,4 +1,4 @@
-name: HNG Stage 2 CI/CD Pipeline
+name: HNG Stage 2 CI/CD Final
 
 on:
   push:
@@ -7,56 +7,35 @@ on:
     branches: [ main ]
 
 jobs:
-  # 1. LINT STAGE
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Lint Dockerfiles (Hadolint)
+      - name: Hadolint
         uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Lint Python (flake8)
+      - name: Flake8
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
 
-  # 2. TEST STAGE
   test:
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Run Tests
         run: |
-          pip install -r api/requirements.txt
-          pip install pytest pytest-cov fakeredis httpx
-
-      - name: Run Unit Tests
-        run: |
+          pip install -r api/requirements.txt pytest pytest-cov fakeredis httpx
           export PYTHONPATH=$PYTHONPATH:$(pwd)/api
           pytest --cov=api --cov-report=xml api/tests/
-
-      - name: Upload Coverage Report
+      - name: Upload Coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
-  # 3 & 4. BUILD & SECURITY SCAN (Combined for Registry Access)
   build_and_scan:
     needs: test
     runs-on: ubuntu-latest
@@ -67,71 +46,57 @@ jobs:
           - 5000:5000
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build Images
+      - name: Build and Scan
         run: |
-          SHA=$(git rev-parse --short HEAD)
-          docker build -t localhost:5000/hng-api:latest -t localhost:5000/hng-api:$SHA ./api
-          docker build -t localhost:5000/hng-worker:latest -t localhost:5000/hng-worker:$SHA ./worker
-          docker build -t localhost:5000/hng-frontend:latest -t localhost:5000/hng-frontend:$SHA ./frontend
-
-      - name: Security Scan (Trivy)
+          docker build -t localhost:5000/hng-api:latest ./api
+          docker build -t localhost:5000/hng-worker:latest ./worker
+          docker build -t localhost:5000/hng-frontend:latest ./frontend
+      - name: Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'localhost:5000/hng-api:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0' 
+          exit-code: '0'
           ignore-unfixed: true
-          vuln-type: 'os,library'
-
-      - name: Push to Local Registry
+      - name: Push
         run: |
-          SHA=$(git rev-parse --short HEAD)
           docker push localhost:5000/hng-api:latest
-          docker push localhost:5000/hng-api:$SHA
           docker push localhost:5000/hng-worker:latest
           docker push localhost:5000/hng-frontend:latest
-
-      - name: Upload Scan Results
+      - name: Upload Scan
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: trivy-results
           path: "trivy-results.sarif"
 
-  # 5. INTEGRATION TEST STAGE
   integration_test:
     needs: build_and_scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Start Multi-Container Stack
-        run: docker compose up -d
-
-      - name: Assert System Health
+      - name: Setup Env for Test
         run: |
-          echo "Waiting for services to initialize..."
-          sleep 30
-          # HNG Requirement: Assert the final status is correct
+          echo "REDIS_PASSWORD=hngpassword" > api/.env
+          echo "REDIS_PASSWORD=hngpassword" > worker/.env
+          echo "REDIS_PASSWORD=hngpassword" > frontend/.env
+          echo "REDIS_PASSWORD=hngpassword" > .env
+      - name: Build and Start Stack
+        run: docker compose up -d --build
+      - name: Health Check
+        run: |
+          echo "Waiting for services..."
+          sleep 40
+          docker compose ps
           curl -f http://localhost:8000/health || exit 1
-          echo "Integration tests passed successfully."
-
-      - name: Clean Up Stack
+      - name: Shutdown
         if: always()
         run: docker compose down
 
-  # 6. DEPLOY STAGE
   deploy:
     needs: integration_test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Scripted Rolling Update
-        run: |
-          echo "Initiating rolling update for HNG microservices..."
-          # Simulation of the required scripted update logic
-          echo "New container health check passed. Stopping old containers."
-          echo "Deployment to production successful."
+      - name: Deployment Simulation
+        run: echo "Rolling update successful."
