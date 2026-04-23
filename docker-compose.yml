@@ -2,31 +2,33 @@
 services:
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-hngpassword}
+    container_name: hng-redis
+    command: redis-server --requirepass hngpassword
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-hngpassword}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "hngpassword", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     networks:
-      - app_network
+      - hng_network
 
   api:
-    build: ./api
+    build: 
+      context: ./api
+      dockerfile: Dockerfile
     image: hng-api:latest
+    container_name: hng-api-server
     ports:
       - "8000:8000"
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-hngpassword}
-    env_file:
-      - ./api/.env
+      - REDIS_PASSWORD=hngpassword
     depends_on:
       redis:
         condition: service_healthy
     networks:
-      - app_network
+      - hng_network
     deploy:
       replicas: 1
       resources:
@@ -37,25 +39,28 @@ services:
   frontend:
     build: ./frontend
     image: hng-frontend:latest
+    container_name: hng-frontend
     ports:
       - "3000:80"
     depends_on:
       - api
     networks:
-      - app_network
+      - hng_network
 
   worker:
     build: ./worker
     image: hng-worker:latest
+    container_name: hng-worker
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_PASSWORD=hngpassword
     depends_on:
       - redis
     networks:
-      - app_network
+      - hng_network
 
 networks:
-  app_network:
+  hng_network:
     name: hng_network
     driver: bridge
