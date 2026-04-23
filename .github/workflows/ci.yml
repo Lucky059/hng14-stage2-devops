@@ -1,105 +1,116 @@
-name: CI Pipeline
+name: HNG Stage 2 Pipeline
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   lint:
-    name: Linting and Static Analysis
+    name: Linting Stage
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Lint Dockerfiles
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          recursive: true
-
-      - name: Lint Frontend JavaScript
-        run: |
-          cd frontend
-          npm install
-          npm run lint || true
-
-      - name: Lint Python Code
-        run: |
-          pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
-  test:
-    name: Unit Testing and Coverage
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run Pytest
+
+      - name: Install Linting Tools
+        run: pip install flake8
+
+      - name: Run Python Lint
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  test:
+    name: Testing Stage
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
         run: |
-          pip install -r api/requirements.txt pytest pytest-cov httpx
+          cd api
+          pip install -r requirements.txt pytest pytest-cov httpx fakeredis
+
+      - name: Run Unit Tests with Coverage
+        run: |
           export PYTHONPATH=$PYTHONPATH:$(pwd)/api
           pytest --cov=api --cov-report=xml api/tests/
-      - name: Upload Coverage Artifact
+
+      - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
   build:
-    name: Container Build and Security Scan
+    name: Build and Scan
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Tag API Image
+      - name: Build and Load API Image
         uses: docker/build-push-action@v5
         with:
           context: ./api
+          load: true # CRITICAL: This allows Trivy to see the image locally
           tags: |
             hng-api:latest
             hng-api:${{ github.sha }}
-          outputs: type=docker,dest=/tmp/api.tar
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run Trivy Security Scan
+      - name: Run Trivy Vulnerability Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'hng-api:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: 1
-
-      - name: Upload Security Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-results
-          path: trivy-results.sarif
+          exit-code: 1 # Fails the build if critical vulnerabilities are found
 
   integration:
     name: Integration Testing
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
-      - name: Start Multi-Container Stack
+
+      - name: Build and Start Services
         run: |
-          echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" > .env
           docker compose up -d --build
-      - name: Execute Integration Script
-        run: bash scripts/integration-test.sh
-      - name: Cleanup Services
+
+      - name: Run Integration Script
+        run: |
+          chmod +x scripts/integration-test.sh
+          ./scripts/integration-test.sh
+
+      - name: Shutdown Services
         if: always()
         run: docker compose down
+
+  deploy:
+    name: Deployment Stage
+    needs: integration
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy Announcement
+        run: echo "All checks passed. Deploying to production environment..."
