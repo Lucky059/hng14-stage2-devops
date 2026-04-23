@@ -1,57 +1,71 @@
-# hng14-stage2-devops
-# Multi‑Service DevOps Project
+📋 Prerequisites
+Before starting, ensure the following are installed on your machine:
 
-## Overview
-This project demonstrates a containerized application stack with four services:
-- **API** – Python backend with job creation and health endpoints
-- **Worker** – Background processor consuming jobs from Redis
-- **Frontend** – React dashboard with health monitoring
-- **Redis** – In‑memory store with optional password authentication
+Git (to clone the repository)
 
-The stack is orchestrated with **Docker Compose** and integrated into a **GitHub Actions CI/CD pipeline**.
+Docker (latest stable version)
 
-## Features
-- CI/CD pipeline with linting, testing, image builds, and deployment
-- Container security scanning using **Trivy**
-- Integration tests with Docker Compose healthchecks
-- Support for Blue‑Green Deployment strategies on AWS
-- Linux server hardening practices applied to infrastructure
+Docker Compose (v2 or higher, usually bundled with Docker Desktop)
 
-## Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/OWNER/REPO.git
-   cd REPO
-Create .env files or export environment variables:
+Node.js & npm (for frontend development, optional if only running containers)
 
+Python 3.10+ (for local API/worker testing outside containers, optional)
+Setup Instructions
+1. Clone the repository
 bash
-REDIS_PASSWORD=yourpassword
-API_URL=http://localhost:8000
-Start services:
+git clone https://github.com/OWNER/REPO.git
+cd REPO
+2. Create environment files
+Each service expects environment variables. Create .env files with placeholder values:
 
+api/.env
+
+env
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=changeme
+APP_ENV=development
+QUEUE_NAME=job
+worker/.env
+
+env
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=changeme
+QUEUE_NAME=job
+frontend/.env
+
+env
+API_URL=http://api:8000
+Note: Never commit .env files with real secrets. Use .env.example for placeholders.
+
+3. Build and start the stack
 bash
 docker compose up --build
-CI/CD
-Linting: flake8, eslint, hadolint
+This will:
 
-Testing: pytest with coverage reports
+Build images for api, worker, and frontend
 
-Build: Docker images pushed to GHCR
+Start redis from the official image
 
-Security: Trivy scans fail on CRITICAL vulnerabilities
+Run all services on a shared network
 
-Integration: Docker Compose stack with healthchecks
+4. Verify healthchecks
+API: http://localhost:8000/health (localhost in Bing) → should return {"status":"ok"}
 
-Deployment: Blue‑Green strategy supported for AWS
+Frontend: http://localhost:3000/health (localhost in Bing) → should return {"status":"ok"}
 
-Secrets Required
-GHCR_PAT – GitHub PAT with Packages: write
+Redis:
 
-REDIS_PASSWORD – Redis password (optional; blank runs without auth)
+bash
+docker exec -it <redis-container-id> redis-cli ping
+→ should return PONG
 
-Health Endpoints
-API: http://localhost:8000/health
+✅ Successful Startup Looks Like
+docker compose ps shows all services running and healthy.
 
-Frontend: http://localhost:3000/health
+Visiting http://localhost:3000 loads the frontend dashboard.
 
-Redis: redis-cli ping (with or without password)
+Submitting a job in the frontend shows it processed by the worker and stored in Redis.
+
+Logs (docker compose logs -f) show API receiving requests, worker processing jobs, and frontend serving pages without errors.
