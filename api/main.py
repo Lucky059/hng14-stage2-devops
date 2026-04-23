@@ -1,38 +1,36 @@
-import os
-import uuid
+import pytest
+from fastapi.testclient import TestClient
+from main import app
 import redis
-from fastapi import FastAPI, HTTPException
+import fakeredis
 
-app = FastAPI()
+client = TestClient(app)
 
-# Requirement: Use environment variables for configuration
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+@pytest.fixture(autouse=True)
+def mock_redis(monkeypatch):
+    """
+    Since your code calls redis.Redis(host=...) inside every function,
+    we must mock the 'redis.Redis' class itself to return a fake client.
+    """
+    fake_red = fakeredis.FakeRedis(decode_responses=True)
+    
+    # This replaces the redis.Redis class constructor with our fake instance
+    monkeypatch.setattr(redis, "Redis", lambda **kwargs: fake_red)
+    return fake_red
 
+def test_read_health():
+    response = client.get("/health")
+    assert response.status_code == 200
+    # Your code returns {"status": "ok", "redis": "connected"} when ping works
+    assert response.json()["status"] == "ok"
 
-@app.get("/health")
-def health_check():
-    try:
-        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-        r.ping()
-        return {"status": "ok", "redis": "connected"}
-    except Exception:
-        return {"status": "ok", "redis": "disconnected"}
+def test_create_job():
+    # Your code uses @app.post("/jobs")
+    response = client.post("/jobs")
+    assert response.status_code == 201
+    assert "job_id" in response.json()
 
-
-@app.post("/jobs", status_code=201)
-def create_job():
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-    job_id = str(uuid.uuid4())
-    r.lpush("job_queue", job_id)
-    r.hset(f"job:{job_id}", "status", "pending")
-    return {"job_id": job_id}
-
-
-@app.get("/jobs/{job_id}")
-def get_job(job_id: str):
-    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-    status = r.hget(f"job:{job_id}", "status")
-    if not status:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, "status": status}
+def test_get_job_not_found():
+    # Testing the 404 logic in your @app.get("/jobs/{job_id}")
+    response = client.get("/jobs/non-existent-id")
+    assert response.status_code == 404
