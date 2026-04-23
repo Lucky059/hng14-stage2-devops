@@ -1,3 +1,6 @@
+
+version: '3.8'
+
 services:
   api:
     build: ./api
@@ -50,11 +53,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    # BUG FIX: Force Redis to use the password from your .env
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-hngpassword}
     healthcheck:
-      # BUG FIX: Authenticate the healthcheck ping with the password
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-hngpassword}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
