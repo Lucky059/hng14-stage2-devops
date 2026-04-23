@@ -4,10 +4,10 @@ from main import app
 
 client = TestClient(app)
 
+
 # Test 1: Health Check
 @patch("redis.Redis")
 def test_health_check(mock_redis_class):
-    # Setup the mock instance
     mock_instance = MagicMock()
     mock_instance.ping.return_value = True
     mock_redis_class.return_value = mock_instance

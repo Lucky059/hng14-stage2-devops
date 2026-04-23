@@ -9,6 +9,7 @@ app = FastAPI()
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
+
 @app.get("/health")
 def health_check():
     try:
@@ -18,6 +19,7 @@ def health_check():
     except Exception:
         return {"status": "ok", "redis": "disconnected"}
 
+
 @app.post("/jobs", status_code=201)
 def create_job():
     r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
@@ -25,6 +27,7 @@ def create_job():
     r.lpush("job_queue", job_id)
     r.hset(f"job:{job_id}", "status", "pending")
     return {"job_id": job_id}
+
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
