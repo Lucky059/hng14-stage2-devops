@@ -1,236 +1,123 @@
-File: api/.env
-Issue: Sensitive environment variables (REDIS_PASSWORD, APP_ENV) were committed to GitHub.
-Why it’s a problem: Environment files often contain secrets like passwords or API keys. If they are pushed to GitHub, anyone can see them, which is a serious security risk.
-Fix: 
-  - Removed api/.env from the repository using `git rm --cached api/.env`.
-  - Added api/.env to .gitignore so it will not be committed again.
-  - Created api/.env.example with placeholder values (e.g., REDIS_PASSWORD=changeme, APP_ENV=development).
-  - Updated code in api/main.py to load values from environment variables at runtime instead of hardcoding.
 
-
-
-
-
-File: api/main.py
-Line: r = redis.Redis(host="localhost", port=6379)
-Issue: Redis host and port were hardcoded to "localhost:6379". This breaks containerized deployments because "localhost" points to the API container itself, not the Redis service.
-Fix:I updated my code to use environment variables:
-    host=os.getenv("REDIS_HOST", "redis")
-    port=int(os.getenv("REDIS_PORT", 6379))
-    password=os.getenv("REDIS_PASSWORD", None)
-Also updated job queue name to use environment variable QUEUE_NAME instead of hardcoding "job".
-
-
-
-File: frontend/app.js
-Issue:
-  API URL was hardcoded to "http://localhost:8000". This breaks containerized deployments because "localhost" points to the frontend container itself, not the API service.
+Fix.md – CI/CD & Codebase Improvements
+Sensitive Files
+Problem: api/.env with secrets (REDIS_PASSWORD, APP_ENV) was committed.
 
 Fix:
-  I updated the code to load the API URL from environment variables:
-    const API_URL = process.env.API_URL || "http://api:8000";
-Impact:
-  The frontend can now connect to the API service reliably in both local and containerized environments.
 
+Removed with git rm --cached api/.env.
 
+Added api/.env to .gitignore.
 
-File: frontend/package.json
-Issue:
-  Package.json was missing metadata and used an older axios version. While dependencies and scripts were correct, the file lacked clarity for reviewers.
-- Migrated `eslint.config.js` to flat config system.
-- Replaced `env` with `languageOptions.globals` to define Node.js globals (`require`, `__dirname`, `console`, etc.).
-- This resolved ESLint error: `"env" key is not supported in flat config system`.
+Created api/.env.example with placeholders (e.g., REDIS_PASSWORD=changeme).
 
+Updated code to load values from environment variables at runtime.
 
-# Fixes
+Redis Configuration
+Problem: Redis host/port hardcoded to localhost:6379 in api/main.py and worker/worker.py.
 
-## ESLint Configuration
-- Added `eslint.config.js` with proper Node.js environment settings:
-  - Set `env: { node: true }` to recognize Node globals (`require`, `__dirname`, `console`).
-  - Configured `sourceType: "commonjs"` to match CommonJS usage.
-  - Scoped linting to `frontend/**/*.js` and `frontend/app.js` only.
-  - Disabled `no-console` rule and downgraded `no-unused-vars` to warnings.
-
-## Package.json
-- Added a `lint` script: `"lint": "eslint frontend/app.js"`.
-- Ensured `eslint` and `@eslint/js` are listed under `devDependencies`.
-
-## CI/CD Workflow
-- Updated GitHub Actions workflow:
-  - Replaced global ESLint install with `npm ci` to install local devDependencies.
-  - Changed lint step to run `npm run lint`.
-
-## Errors Resolved
-- Fixed `Cannot find module '@eslint/js'` error in CI.
-- Fixed `Missing script: "lint"` error by adding the script.
-- Fixed `No files matching the pattern "views"` and `"app.js"` errors by correcting paths.
-- Fixed `no-undef` errors for Node globals by configuring ESLint environment.
-
+Impact: Containers could not connect to Redis service.
 
 Fix:
-  I updated package.json to:
-    - Add a description and license field.
-    - Upgrade axios to the latest stable version.
-Impact:
-  The frontend dependencies are now up-to-date, and the package.json provides clearer context for collaborators and reviewers.
 
+Use environment variables:
 
-File: worker/worker.py
-Issue:
-  r = redis.Redis(host="localhost", port=6379)Redis connection was hardcoded to localhost:6379. This caused failures in containerized deployments because "localhost" pointed to the worker container itself, not the Redis service.
+python
+host=os.getenv("REDIS_HOST", "redis")
+port=int(os.getenv("REDIS_PORT", 6379))
+password=os.getenv("REDIS_PASSWORD", None)
+r = redis.Redis(host=host, port=port, password=password, decode_responses=True)
+Added QUEUE_NAME env variable instead of hardcoding "job".
+
+Added decode_responses=True so Redis returns strings.
+
+API Healthcheck
+Problem: API container marked unhealthy because /health endpoint was missing.
+
+Fix: Added FastAPI route:
+
+python
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+API Route Mismatch
+Problem: Frontend called /submit but API only exposed /jobs.
+
+Fix: Added /submit alias route pointing to job creation logic.
+
+Frontend Configuration
+Problem: API URL hardcoded to http://localhost:8000 in frontend/app.js.
+
+Impact: Frontend couldn’t reach API in containers.
 
 Fix:
-  I updated the Redis connection to use environment variables instead of hardcoding:
-    host=os.getenv("REDIS_HOST", "redis")
-    port=int(os.getenv("REDIS_PORT", 6379))
-    password=os.getenv("REDIS_PASSWORD", None)
-  I also updated the queue name to use QUEUE_NAME from environment variables instead of hardcoding "job".
-Impact:
-  The worker can now connect to Redis reliably in both local and containerized environments.
 
+javascript
+const API_URL = process.env.API_URL || "http://api:8000";
+Frontend Package.json & ESLint
+Problems:
 
+Missing metadata, outdated axios.
 
-File: api/main.py / docker-compose.yml
-Issue:
-  API container was marked unhealthy even though Uvicorn started successfully.
-  Healthcheck was configured to probe /health, but FastAPI app did not expose this endpoint.
+ESLint misconfigured (old env key, missing devDependencies).
 
-Fix:
-  Added a /health route in api/main.py:
-    @app.get("/health")
-    def health():
-        return {"status": "ok"}
-  This ensures the Docker healthcheck succeeds.
-  Alternatively, the healthcheck block in docker-compose.yml could be removed or pointed to an existing endpoint.
+Fixes:
 
-Impact:
-  API container now passes healthcheck and remains in a healthy state.
-  Dependent services (frontend, worker) can reliably start without failing due to unhealthy dependency.
+Added description and license fields.
 
+Upgraded axios to latest stable.
 
-File: api/main.py
+Migrated to ESLint v10 flat config (eslint.config.js).
 
-Line 22: The route definition for job creation (@app.post("/jobs"))
+Defined Node.js globals via languageOptions.globals.
 
-Problem:  
-The frontend is coded to call /submit when creating a new job, but the API only exposes /jobs. This mismatch means the frontend receives no valid response, so the dashboard shows Submitted: undefined
-fix: I added an alias route /submit that calls the same logic as /jobs
+Added lint script: "lint": "eslint frontend/app.js".
 
-
-File: api/main.py
-Line: 10
-Problem: Redis client returned bytes by default, which can cause issues when reading job status.
-Fix: Added decode_responses=True to redis.Redis() so values are returned as strings.
+Updated CI workflow to run npm ci && npm run lint.
 
 Worker Service
-File: worker/worker.py
+Problems:
 
-Line(s): Redis client initialization (top of file)
+Redis client initialization had broken syntax (duplicated port, stray parentheses).
 
-Issue:  
-Redis client was incorrectly initialized with hardcoded "REDIS_HOST" string and malformed syntax. The code had duplicated port argument and stray parentheses, causing runtime errors and preventing the worker from connecting to Redis.
+Caused runtime errors and container startup failures.
 
-Fix:  
-Replaced with proper environment variable usage and corrected syntax. Added decode_responses=True for cleaner string handli
+Fixes:
 
-File: worker/worker.py
+Rewrote initialization block with proper env variables and syntax.
 
-Line(s): Redis client initialization (top of file)
+Added decode_responses=True.
 
-Issue:
+Corrected indentation and removed stray whitespace.
 
-The Redis client was incorrectly initialized with broken syntax: parentheses closed too early, duplicated port argument, and mis‑indented lines.
+Linting
+Python (flake8):
 
-This caused IndentationError: unexpected indent and prevented the worker container from starting.
+Added blank lines before/after functions (E302/E305).
 
-Fix:
+Removed trailing blank lines (W391) and whitespace (W291).
 
-Rewrote the Redis client initialization block to use proper Python syntax and environment variables.
+Frontend (ESLint):
 
-Added decode_responses=True so job IDs and statuses are returned as strings without manual decoding.
+Scoped linting to frontend/**/*.js and frontend/app.js.
 
+Disabled no-console, downgraded no-unused-vars to warnings.
 
+CI workflow corrected to lint actual paths.
 
-# Lint Fixes for main.py
+Outcome
+Secrets removed from repo and replaced with .env.example.
 
-- Added 2 blank lines before each top-level function (`E302`).
-- Added 2 blank lines after each function (`E305`).
-- Removed trailing blank line at end of file (`W391`).
+Redis connections now work in containerized deployments.
 
+API healthcheck passes, dependent services start reliably.
 
+Frontend connects to API via environment variable.
 
+Package.json updated, ESLint configured correctly, CI lint stage passes.
 
+Worker service runs without syntax errors.
 
-## lint fixes for worker.py
-- Added 2 blank lines before `process_job` function (`E302`).
-- Added 2 blank lines after `process_job` before `while True` loop (`E305`).
-- Removed trailing blank line at end of file (`W391`).
+All Python and JS files pass lint checks.
 
-# Lint Fixes Summary
-
-## api/main.py
-- Added two blank lines before each top-level function (`E302`).
-- Added two blank lines after each function definition (`E305`).
-- Removed trailing blank line at end of file (`W391`).
-
-## worker/worker.py
-- Added two blank lines before the `process_job` function (`E302`).
-- Added two blank lines after the `process_job` function before the `while True` loop (`E305`).
-- Removed trailing blank line at end of file (`W391`).
-- Removed trailing whitespace on line 24 (`W291`).
-
-## frontend (ESLint)
-- Fixed CI workflow path: changed ESLint target from `frontend/src` to `frontend` since no `src` folder exists.
-- Added new `eslint.config.js` file for ESLint v10 compatibility (flat config system).
-- **Updated `package.json` devDependencies:**
-  - Added `eslint` (`^10.2.1`) to enable linting.
-  - Added `@eslint/js` (`^10.2.1`) to provide recommended ESLint rules.
-- Created a `lint` npm script (`npm run lint`) to run ESLint on `frontend`, `views`, and `app.js`.
-- Updated GitHub Actions workflow to run `npx eslint frontend views app.js`.
-
-## Outcome
-- Python files (`api/main.py` and `worker/worker.py`) now pass `flake8` with no errors.
-- Frontend JavaScript files now lint successfully with ESLint v10 using the new config and dependencies.
-- CI/CD pipeline lint stage should now complete without errors.
-
-# Fixes
-
-## ESLint Configuration
-- Migrated to flat config system (`eslint.config.js`).
-- Replaced deprecated `env` key with `languageOptions.globals` to define Node.js globals (`require`, `__dirname`, `console`, etc.).
-- Scoped linting to `frontend/**/*.js` and `frontend/app.js`.
-- Adjusted rules:
-  - `no-unused-vars` set to "warn" (instead of error).
-  - `no-console` disabled to allow logging.
-
-## Package.json
-- Added `lint` script: `"lint": "eslint frontend/app.js"`.
-- Ensured `eslint` and `@eslint/js` are listed under `devDependencies`.
-
-## CI/CD Workflow
-- Updated GitHub Actions workflow:
-  - Replaced global ESLint install with `npm ci` to install local devDependencies.
-  - Changed lint step to run `npm run lint`.
-
-## Errors Resolved
-- Fixed `Cannot find module '@eslint/js'` error in CI.
-- Fixed `Missing script: "lint"` error by adding the script.
-- Fixed invalid paths (`views`, `app.js`) in lint script.
-- Fixed `no-undef` errors for Node globals by configuring flat config properly.
-- Current lint run passes with only **warnings** about unused variables.
-
-- Fixed CI pytest step: original command pointed to `api/tests`, which does not exist.
-- Added `tests/test_health.py` to validate `/health` endpoint.
-- Updated workflow to run `pytest tests --cov=api --cov-report=xml`.
-
-
-- Fixed pytest ImportError: `fastapi` not found.
-- Added `fastapi`, `uvicorn`, `pytest`, and `pytest-cov` to `requirements.txt`.
-- Ensured Dockerfile installs all dependencies via `pip install -r requirements.txt`.
-
-- Fixed pytest RuntimeError: Starlette TestClient requires `httpx`.
-- Added `httpx` to `requirements.txt` so FastAPI tests can run.
-
-- Fixed pytest ImportError: `api` module not found.
-- Root cause: `api/` folder wasn’t recognized as a package.
-- Added `api/__init__.py` and updated CI to run `PYTHONPATH=. pytest ...`.
+CI/CD pipeline stable and secure.
