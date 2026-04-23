@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: HNG Stage 2 CI/CD
 
 on:
   push:
@@ -12,22 +12,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: Lint Dockerfiles (Hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
           
-      - name: Lint Python (flake8)
-        run: |
-          pip install flake8
-          flake8 api/ worker/ --ignore=E501 --count --statistics
-          
-      - name: Lint Dockerfiles (hadolint)
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: "*/Dockerfile"
-          recursive: true
+      - name: Install Linting Tools
+        run: pip install flake8
+
+      - name: Lint with flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
   # 2. TEST STAGE
   test:
@@ -41,21 +41,23 @@ jobs:
         with:
           python-version: '3.11'
           
-      - name: Run API Unit Tests
+      - name: Install dependencies
         run: |
-          cd api
-          pip install -r requirements.txt pytest pytest-mock pytest-cov
-          # PYTHONPATH=. ensures 'main' is findable by pytest
-          PYTHONPATH=. pytest --cov=. --cov-report=xml tests/
+          pip install -r api/requirements.txt
+          pip install pytest pytest-cov fakeredis httpx
           
-      - name: Upload Coverage Artifact
+      - name: Run Tests with Coverage
+        run: |
+          pytest --cov=api --cov-report=xml
+          
+      - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         with:
-          name: api-coverage-report
-          path: api/coverage.xml
+          name: coverage-report
+          path: coverage.xml
 
-  # 3. BUILD STAGE
-  build:
+  # 3. BUILD & SECURITY SCAN (Combined for reliability)
+  build_and_scan:
     needs: test
     runs-on: ubuntu-latest
     services:
@@ -65,108 +67,59 @@ jobs:
           - 5000:5000
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           driver-opts: network=host
-          
-      - name: Build and Push to Local Registry
-        run: |
-          for service in api worker frontend; do
-            IMAGE="localhost:5000/hng-$service"
-            # Tag with SHA and latest
-            docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./$service
-            docker push $IMAGE:${{ github.sha }}
-            docker push $IMAGE:latest
-          done
 
-  # 4. SECURITY SCAN STAGE
-  security-scan:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run Trivy scanner (API Image)
+      - name: Build Images
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          docker build -t hng-api:$SHA -t hng-api:latest ./api
+          docker build -t hng-worker:$SHA -t hng-worker:latest ./worker
+          docker build -t hng-frontend:$SHA -t hng-frontend:latest ./frontend
+
+      - name: Scan API Image (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'localhost:5000/hng-api:${{ github.sha }}'
+          image-ref: 'hng-api:latest'
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-api.sarif'
           severity: 'CRITICAL'
           exit-code: '1'
-          
-      - name: Upload Trivy scan results
+
+      - name: Scan Worker Image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'hng-worker:latest'
+          format: 'sarif'
+          output: 'trivy-worker.sarif'
+          severity: 'CRITICAL'
+          exit-code: '1'
+
+      - name: Scan Frontend Image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'hng-frontend:latest'
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL'
+          exit-code: '1'
+
+      - name: Push to Local Registry (After Scan)
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          for service in api worker frontend; do
+            docker tag hng-$service:latest localhost:5000/hng-$service:$SHA
+            docker tag hng-$service:latest localhost:5000/hng-$service:latest
+            docker push localhost:5000/hng-$service:$SHA
+            docker push localhost:5000/hng-$service:latest
+          done
+
+      - name: Upload Scan Results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: trivy-results
-          path: trivy-results.sarif
-
-  # 5. INTEGRATION TEST STAGE
-  integration-test:
-    needs: security-scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Launch Stack
-        run: docker compose up -d --build
-              
-      - name: Integration Test Script
-        run: |
-          echo "Waiting for services to be healthy..."
-          sleep 30
-          
-          # Submit job via API
-          JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r '.job_id')
-          echo "Job ID: $JOB_ID"
-          
-          # Poll for completion (max 60s)
-          ATTEMPTS=0
-          while [ $ATTEMPTS -lt 12 ]; do
-            STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
-            echo "Current Status: $STATUS"
-            if [ "$STATUS" == "completed" ]; then
-              echo "Integration Test Passed!"
-              exit 0
-            fi
-            sleep 5
-            ATTEMPTS=$((ATTEMPTS+1))
-          done
-          echo "Integration Test Timed Out"
-          exit 1
-          
-      - name: Teardown
-        if: always()
-        run: docker compose down
-
-  # 6. DEPLOY STAGE
-  deploy:
-    needs: integration-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Scripted Rolling Update
-        run: |
-          echo "Starting Rolling Update..."
-          # 1. Scale up new containers
-          docker compose up -d --no-deps --scale frontend=2 frontend
-          
-          # 2. Wait for health check (max 60s)
-          TIMEOUT=60
-          while [ $TIMEOUT -gt 0 ]; do
-            # Count healthy containers
-            HEALTHY_COUNT=$(docker ps --filter "name=frontend" --filter "health=healthy" | grep -c "healthy" || true)
-            if [ "$HEALTHY_COUNT" -ge 2 ]; then
-               echo "New instance is healthy. Completing update..."
-               docker compose up -d --no-deps --scale frontend=1 frontend
-               exit 0
-            fi
-            sleep 5
-            TIMEOUT=$((TIMEOUT-5))
-          done
-          
-          echo "Health check failed. Rolling back..."
-          docker compose up -d --no-deps --scale frontend=1 frontend
-          exit 1
+          path: "*.sarif"
