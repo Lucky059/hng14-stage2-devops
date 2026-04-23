@@ -1,3 +1,4 @@
+
 name: HNG Stage 2 Final Submission
 
 on:
@@ -77,8 +78,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'hng-api:latest'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
+          format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: 0 
 
@@ -96,7 +96,6 @@ jobs:
           touch api/.env
 
       - name: Nuclear Port & Docker Cleanup
-        # Kills any process on 8000 and prunes the Docker environment
         run: |
           sudo fuser -k 8000/tcp || true
           docker system prune -f
@@ -106,15 +105,23 @@ jobs:
         run: |
           export REDIS_HOST=redis
           export REDIS_PORT=6379
-          # --scale api=1 ensures only ONE api container is created
-          # -p hng_test provides a clean, unique project namespace
-          docker compose -p hng_test up -d --build --force-recreate --scale api=1
+          # ADDED --wait: Docker will now wait for the Healthchecks defined in your compose file
+          docker compose -p hng_test up -d --build --force-recreate --scale api=1 --wait
+          
+          # Extra safety sleep for the bridge network
+          echo "Stabilizing..."
+          sleep 10
 
       - name: Run Integration Script
         run: |
-          # Ensure script is executable
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
+
+      - name: Check Logs on Failure
+        if: failure()
+        run: |
+          docker compose -p hng_test logs api
+          docker compose -p hng_test ps
 
       - name: Cleanup
         if: always()
