@@ -1,15 +1,25 @@
+# STAGE 1: Build
+FROM node:20-bookworm-slim AS builder
+
+WORKDIR /app
+
+# Use npm ci for faster, more reliable builds (Hadolint preference)
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+
+# STAGE 2: Production
 FROM nginx:1.25.3-bookworm
 
-# Metadata
 LABEL maintainer="Ukweku Lucky"
 
-# Security: Allow Nginx to run as non-root by adjusting permissions
-# This ensures the nginx user can write to necessary directories
+# Prepare Nginx folders for non-root execution
 RUN touch /var/run/nginx.pid && \
     chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
 
-# Hadolint requires pinning curl. 
-# Using wildcard '*' to avoid "Version not found" errors during security updates.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl=7.88.* \
     && apt-get clean \
@@ -17,20 +27,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /usr/share/nginx/html
 
-# Copy your frontend files and set ownership to the nginx user
-COPY --chown=nginx:nginx . .
+# Copy build assets with proper ownership
+COPY --from=builder --chown=nginx:nginx /app/dist . 
 
-# Switch to the non-root nginx user
 USER nginx
 
-# Standard web port
 EXPOSE 80
 
-# Healthcheck to verify the frontend is up
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:80/ || exit 1
 
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
 
 
