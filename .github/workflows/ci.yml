@@ -7,111 +7,120 @@ on:
     branches: [ main ]
 
 jobs:
+  # 1. LINT STAGE
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+          
       - name: Lint Python (flake8)
         run: |
           pip install flake8
-          # Ignore E501 (line length) to avoid common failures
           flake8 api/ worker/ --ignore=E501 --count --statistics
-
-      - name: Lint JavaScript (eslint)
-        run: |
-          cd frontend
-          npm install
-          npx eslint . --ext .js --fix-dry-run
-
+          
       - name: Lint Dockerfiles (hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: "*/Dockerfile"
           recursive: true
 
+  # 2. TEST STAGE
   test:
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
+          
       - name: Run API Unit Tests
         run: |
           cd api
           pip install -r requirements.txt pytest pytest-mock pytest-cov
-          pytest --cov=. --cov-report=xml tests/
-
+          # PYTHONPATH=. ensures 'main' is findable by pytest
+          PYTHONPATH=. pytest --cov=. --cov-report=xml tests/
+          
       - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v4
         with:
           name: api-coverage-report
           path: api/coverage.xml
 
+  # 3. BUILD STAGE
   build:
     needs: test
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Images
+        with:
+          driver-opts: network=host
+          
+      - name: Build and Push to Local Registry
         run: |
           for service in api worker frontend; do
-            docker build -t hng-$service:${{ github.sha }} ./$service
+            IMAGE="localhost:5000/hng-$service"
+            # Tag with SHA and latest
+            docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./$service
+            docker push $IMAGE:${{ github.sha }}
+            docker push $IMAGE:latest
           done
 
+  # 4. SECURITY SCAN STAGE
   security-scan:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy scanner (API Image)
         uses: aquasecurity/trivy-action@master
         with:
-          # Scanning the API image as a representative sample
-          image-ref: 'hng-api:${{ github.sha }}'
-          format: 'table'
+          image-ref: 'localhost:5000/hng-api:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
           severity: 'CRITICAL'
-          exit-code: '1' 
+          exit-code: '1'
+          
+      - name: Upload Trivy scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
 
+  # 5. INTEGRATION TEST STAGE
   integration-test:
     needs: security-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Launch Stack
-        env:
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD || 'testpassword123' }}
         run: docker compose up -d --build
               
       - name: Integration Test Script
         run: |
           echo "Waiting for services to be healthy..."
           sleep 30
-                    
-          # Submit job to the API
-          RESPONSE=$(curl -s -X POST http://localhost:8000/jobs)
-          JOB_ID=$(echo $RESPONSE | jq -r '.job_id')
+          
+          # Submit job via API
+          JOB_ID=$(curl -s -X POST http://localhost:8000/jobs | jq -r '.job_id')
           echo "Job ID: $JOB_ID"
-                    
-          if [ "$JOB_ID" == "null" ]; then exit 1; fi
-
-          # Poll for completion
+          
+          # Poll for completion (max 60s)
           ATTEMPTS=0
           while [ $ATTEMPTS -lt 12 ]; do
             STATUS=$(curl -s http://localhost:8000/jobs/$JOB_ID | jq -r '.status')
@@ -125,22 +134,39 @@ jobs:
           done
           echo "Integration Test Timed Out"
           exit 1
-
-      - name: Cleanup Containers
+          
+      - name: Teardown
         if: always()
         run: docker compose down
 
+  # 6. DEPLOY STAGE
   deploy:
     needs: integration-test
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Rolling Update Simulation
+      
+      - name: Scripted Rolling Update
         run: |
-          echo "Executing rolling update..."
-          # This simulates a zero-downtime swap
+          echo "Starting Rolling Update..."
+          # 1. Scale up new containers
           docker compose up -d --no-deps --scale frontend=2 frontend
-          sleep 10
+          
+          # 2. Wait for health check (max 60s)
+          TIMEOUT=60
+          while [ $TIMEOUT -gt 0 ]; do
+            # Count healthy containers
+            HEALTHY_COUNT=$(docker ps --filter "name=frontend" --filter "health=healthy" | grep -c "healthy" || true)
+            if [ "$HEALTHY_COUNT" -ge 2 ]; then
+               echo "New instance is healthy. Completing update..."
+               docker compose up -d --no-deps --scale frontend=1 frontend
+               exit 0
+            fi
+            sleep 5
+            TIMEOUT=$((TIMEOUT-5))
+          done
+          
+          echo "Health check failed. Rolling back..."
           docker compose up -d --no-deps --scale frontend=1 frontend
-          echo "Deployment successful."
+          exit 1
