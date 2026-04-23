@@ -1,38 +1,38 @@
 #!/bin/bash
+set -e
 
-# Do NOT use 'set -e' here because we want to handle 
-# connection failures manually in our loop.
+API_URL="http://localhost:8000"
 
-echo "🚀 Starting API Healthcheck Probe..."
+echo "🧪 Starting Job Lifecycle Integration Test..."
 
-URL="http://localhost:8000/health"
-MAX_RETRIES=15
-COUNT=0
+# 1. Submit a job via the API
+RESPONSE=$(curl -s -X POST "$API_URL/jobs")
+JOB_ID=$(echo $RESPONSE | jq -r '.job_id')
 
-while [ $COUNT -lt $MAX_RETRIES ]; do
-  # Use curl to get the status code. 
-  # If the connection is refused, it will return '000'.
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+if [ "$JOB_ID" == "null" ]; then
+  echo "❌ Failed to submit job"
+  exit 1
+fi
 
-  if [ "$STATUS" -eq 200 ]; then
-    echo "✅ [SUCCESS] API is Healthy and responding with 200 OK!"
+echo "✅ Job submitted! ID: $JOB_ID"
+
+# 2. Poll until status is 'completed'
+MAX_ATTEMPTS=20
+ATTEMPT=0
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+  STATUS_RES=$(curl -s "$API_URL/jobs/$JOB_ID")
+  STATUS=$(echo $STATUS_RES | jq -r '.status')
+  
+  echo "⏳ Current Job Status: $STATUS"
+  
+  if [ "$STATUS" == "completed" ]; then
+    echo "🎉 Integration Test Passed: Job reached completed state!"
     exit 0
   fi
-
-  echo "⏳ [WAITING] API is not ready yet (Status: $STATUS). Retrying in 5s... ($((COUNT+1))/$MAX_RETRIES)"
   
-  sleep 5
-  COUNT=$((COUNT+1))
+  sleep 3
+  ATTEMPT=$((ATTEMPT+1))
 done
 
-echo "❌ [FAILURE] API failed to become healthy after $MAX_RETRIES attempts."
-
-# Diagnostic: Check if the container is even running
-echo "--- Docker Container Status ---"
-docker ps -a | grep api || echo "API container not found!"
-
-# Diagnostic: Show the last few lines of the API logs to see why it's failing
-echo "--- API Container Logs ---"
-docker logs hng-api-server --tail 20 || echo "Could not fetch logs."
-
+echo "❌ Integration Test Failed: Job timed out"
 exit 1
