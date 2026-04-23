@@ -1,4 +1,3 @@
-
 services:
   redis:
     image: redis:7-alpine
@@ -13,9 +12,7 @@ services:
       - hng_network
 
   api:
-    build: 
-      context: ./api
-      dockerfile: Dockerfile
+    build: ./api
     image: hng-api:latest
     container_name: hng-api-server
     ports:
