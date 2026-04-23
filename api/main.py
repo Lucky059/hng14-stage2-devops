@@ -1,49 +1,35 @@
-# api/main.py
-from fastapi import FastAPI
-import redis
-import uuid
 import os
-from typing import Optional
+import uuid
+import redis
+from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
-
-def get_redis():
-    """Create a Redis client on demand to avoid startup blocking."""
-    return redis.Redis(
-        host=os.getenv("REDIS_HOST", "redis"),
-        port=int(os.getenv("REDIS_PORT", 6379)),
-        password=os.getenv("REDIS_PASSWORD") or None,
-        decode_responses=True
-    )
-
+# Requirement: Use environment variables for configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health_check():
+    try:
+        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+        r.ping()
+        return {"status": "ok", "redis": "connected"}
+    except Exception:
+        return {"status": "ok", "redis": "disconnected"}
 
-
-@app.post("/jobs")
+@app.post("/jobs", status_code=201)
 def create_job():
-    r = get_redis()
+    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     job_id = str(uuid.uuid4())
-    # push job id to queue and set initial status
-    r.lpush("job", job_id)
-    r.hset(f"job:{job_id}", "status", "queued")
-    return {"job_id": job_id, "status": "queued"}
-
+    r.lpush("job_queue", job_id)
+    r.hset(f"job:{job_id}", "status", "pending")
+    return {"job_id": job_id}
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
-    r = get_redis()
-    status: Optional[str] = r.hget(f"job:{job_id}", "status")
+    r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    status = r.hget(f"job:{job_id}", "status")
     if not status:
-        return {"error": "not found"}
+        raise HTTPException(status_code=404, detail="Job not found")
     return {"job_id": job_id, "status": status}
-
-# Alias route so frontend calling /submit also works
-
-
-@app.post("/submit")
-def submit_job():
-    return create_job()
