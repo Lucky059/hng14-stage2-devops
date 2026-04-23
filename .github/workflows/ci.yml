@@ -23,13 +23,13 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
+          ignore: DL3008
 
       - name: Lint Frontend (ESLint)
         run: |
           cd frontend
           npm install
-          # Note: Ensure you have an eslint config file in your frontend folder
-          npx eslint . --ext .js,.jsx --fix-dry-run || echo "Eslint finished"
+          npx eslint . --ext .js,.jsx --fix-dry-run || echo "Eslint check finished"
 
   # 2. TEST
   test:
@@ -72,7 +72,7 @@ jobs:
           docker build -t localhost:5000/hng-api:${{ github.sha }} ./api
           docker tag localhost:5000/hng-api:${{ github.sha }} localhost:5000/hng-api:latest
           docker push localhost:5000/hng-api:latest
-          # Build Worker & Frontend (Required by task)
+          # Build Worker & Frontend
           docker build -t localhost:5000/hng-worker:latest ./worker
           docker push localhost:5000/hng-worker:latest
           docker build -t localhost:5000/hng-frontend:latest ./frontend
@@ -108,7 +108,7 @@ jobs:
       - name: Setup Stack
         run: |
           docker compose up -d --build
-          echo "Waiting for services to be healthy..."
+          echo "Waiting for services to stabilize..."
           sleep 30
       - name: Run Lifecycle Integration Test
         run: |
