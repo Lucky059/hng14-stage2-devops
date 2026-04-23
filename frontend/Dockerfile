@@ -1,31 +1,31 @@
 # --- STAGE 1: Build ---
-FROM node:20-alpine AS builder
+FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --production
+RUN npm install --quiet
 COPY . .
+RUN npm run build
 
 # --- STAGE 2: Runtime ---
-FROM node:20-alpine
+FROM alpine:3.19
 WORKDIR /app
 
-# Requirement: Non-root user
-RUN adduser -D hnguser
-# Install curl for the HEALTHCHECK
-RUN apk add --no-cache curl
+# Install 'serve' and nodejs (pinned)
+RUN apk add --no-cache nodejs=20.15.1-r0 npm=10.8.0-r0 && \
+    npm install -g serve@14.2.3
 
-COPY --from=builder /app /app
-RUN chown -R hnguser:hnguser /app
+# Copy build artifacts and set permissions
+COPY --from=build /app/build ./build
+RUN adduser -D hnguser && chown -R hnguser:hnguser /app
 
 USER hnguser
 EXPOSE 3000
 
-# Requirement: Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/ || exit 1
+# Healthcheck: Verify port 3000 is accepting connections
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD nc -z localhost 3000 || exit 1
 
-# BUG FIX: Ensure this points to app.js, not server.js
-CMD ["node", "app.js"]
+CMD ["serve", "-s", "build", "-l", "3000"]
 
 
 
