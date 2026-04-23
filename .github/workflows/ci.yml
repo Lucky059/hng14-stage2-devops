@@ -1,3 +1,4 @@
+
 name: HNG Stage 2 CI/CD
 
 on:
@@ -47,7 +48,7 @@ jobs:
           pip install pytest pytest-cov fakeredis httpx
           
       - name: Run Tests with Coverage
-        # Setting PYTHONPATH solves the "ModuleNotFoundError: No module named main"
+        # PYTHONPATH ensures 'from main import app' works inside api/tests/
         run: |
           export PYTHONPATH=$PYTHONPATH:$(pwd)/api
           pytest --cov=api --cov-report=xml api/tests/
@@ -82,7 +83,7 @@ jobs:
           docker build -t hng-worker:latest ./worker
           docker build -t hng-frontend:latest ./frontend
 
-      - name: Security Scan (Trivy)
+      - name: Security Scan API (Trivy)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'hng-api:latest'
@@ -90,8 +91,28 @@ jobs:
           output: 'trivy-api.sarif'
           severity: 'CRITICAL'
           exit-code: '1'
+          ignore-unfixed: true # Prevents failure on unpatchable OS vulnerabilities
 
-      # Scan Worker and Frontend separately if needed, or scan all in a loop
+      - name: Security Scan Worker (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'hng-worker:latest'
+          format: 'sarif'
+          output: 'trivy-worker.sarif'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Security Scan Frontend (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'hng-frontend:latest'
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+
       - name: Push to Local Registry
         run: |
           SHA=$(git rev-parse --short HEAD)
