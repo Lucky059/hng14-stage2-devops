@@ -1,83 +1,5 @@
 
 services:
-  api:
-    build: 
-      context: ./api
-      dockerfile: Dockerfile
-    image: hng-api:latest
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-hngpassword}
-      - APP_ENV=production
-    # Fix: This is often the cause of CI failure if the file is missing
-    # In your CI script, we use 'touch api/.env' to satisfy this line.
-    env_file:
-      - ./api/.env
-    ports:
-      - "8000:8000"
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: always
-    networks:
-      - app_network
-    deploy:
-      # FIX: Changed replicas to 1 to prevent Port 8000 collision in CI
-      replicas: 1
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 512M
-        reservations:
-          memory: 128M
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    image: hng-frontend:latest
-    environment:
-      - API_URL=http://api:8000
-    ports:
-      - "3000:80"
-    depends_on:
-      api:
-        condition: service_started
-    restart: always
-    networks:
-      - app_network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-
-  worker:
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    image: hng-worker:latest
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-hngpassword}
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: always
-    networks:
-      - app_network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
-
   redis:
     image: redis:7-alpine
     command: redis-server --requirepass ${REDIS_PASSWORD:-hngpassword}
@@ -86,14 +8,52 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    restart: always
+    networks:
+      - app_network
+
+  api:
+    build: ./api
+    image: hng-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-hngpassword}
+    env_file:
+      - ./api/.env
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - app_network
     deploy:
+      replicas: 1
       resources:
         limits:
-          cpus: '0.25'
-          memory: 256M
+          cpus: '0.50'
+          memory: 512M
+
+  frontend:
+    build: ./frontend
+    image: hng-frontend:latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    networks:
+      - app_network
+
+  worker:
+    build: ./worker
+    image: hng-worker:latest
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+    networks:
+      - app_network
 
 networks:
   app_network:
