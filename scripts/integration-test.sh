@@ -1,23 +1,28 @@
+
 #!/bin/bash
 set -e
 
 echo "Checking API Health..."
-MAX_RETRIES=10
 URL="http://localhost:8000/health"
+MAX_RETRIES=15
+COUNT=0
 
-# Use curl with built-in retry logic to handle "Empty reply from server" (Code 56)
-# --retry: number of retries
-# --retry-delay: seconds between retries
-# --retry-all-errors: retries on 56, 52, etc.
-STATUS=$(curl --retry $MAX_RETRIES --retry-delay 5 --retry-all-errors -s -o /dev/null -w "%{http_code}" "$URL")
+while [ $COUNT -lt $MAX_RETRIES ]; do
+  # Use -s (silent) and -w (output status code)
+  # We use || true to prevent the script from exiting on a connection failure (Exit 7)
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
 
-if [ "$STATUS" -eq 200 ]; then
-  echo "API is Healthy! (Status: $STATUS)"
-  exit 0
-else
-  echo "API failed healthcheck with status: $STATUS"
-  # Log the last few lines of the API to see why it's failing
-  docker compose -p hng_test logs api | tail -n 20
-  exit 1
-fi
+  if [ "$STATUS" -eq 200 ]; then
+    echo "✅ API is Healthy! (Status: $STATUS)"
+    exit 0
+  fi
 
+  echo "⏳ Waiting for API... (Current Status: $STATUS) - Attempt $((COUNT+1))/$MAX_RETRIES"
+  sleep 5
+  COUNT=$((COUNT+1))
+done
+
+echo "❌ API failed healthcheck after $MAX_RETRIES attempts"
+# Dump logs so we can see why it never started
+docker compose -p hng_test logs api
+exit 1
