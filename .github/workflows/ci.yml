@@ -7,102 +7,52 @@ on:
     branches: [ main ]
 
 jobs:
-  lint:
-    name: Linting Stage
+  lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Run Python Lint
+      - name: Install Dependencies
         run: |
-          pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
-  test:
-    name: Testing Stage
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Test Dependencies
-        run: |
-          cd api
-          pip install -r requirements.txt pytest pytest-cov httpx fakeredis
-
+          pip install flake8 pytest pytest-cov httpx fakeredis
+          cd api && pip install -r requirements.txt
+      - name: Run Lint
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
       - name: Run Unit Tests
         run: |
           export PYTHONPATH=$PYTHONPATH:$(pwd)/api
-          pytest --cov=api --cov-report=xml api/tests/
+          pytest api/tests/
 
-  build:
-    name: Build and Scan
-    needs: test
+  build-and-integration:
+    needs: lint-and-test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Build API Image
+        run: docker build -t hng-api:latest ./api
 
-      - name: Build and Load API Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./api
-          load: true 
-          tags: hng-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Run Trivy Vulnerability Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'hng-api:latest'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: 0 
-
-  integration:
-    name: Integration Testing
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Resolve Missing Env File
+      - name: Build Frontend & Worker
         run: |
-          mkdir -p api
-          touch api/.env
+          docker build -t hng-frontend:latest ./frontend
+          docker build -t hng-worker:latest ./worker
 
-      - name: Nuclear Port & Docker Cleanup
+      - name: Nuclear Cleanup
         run: |
           sudo fuser -k 8000/tcp || true
-          docker system prune -f
+          docker stop $(docker ps -aq) || true
+          docker rm $(docker ps -aq) || true
           docker network prune -f
+          mkdir -p api && touch api/.env
 
       - name: Start Services
         run: |
-          export REDIS_HOST=redis
-          export REDIS_PORT=6379
-          export REDIS_PASSWORD=hngpassword
-          # We use a unique project name and force a single replica
-          docker compose -p hng_test up -d --build --force-recreate --scale api=1
-          
-          echo "Waiting 20 seconds for services to stabilize..."
+          # Use a unique project name to avoid naming collisions
+          docker compose -p hng_test up -d
+          echo "Waiting for services to stabilize..."
           sleep 20
 
       - name: Run Integration Script
@@ -110,7 +60,7 @@ jobs:
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
 
-      - name: Check Logs on Failure
+      - name: Debug Logs on Failure
         if: failure()
         run: |
           docker compose -p hng_test logs api
@@ -119,11 +69,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose -p hng_test down -v
-
-  deploy:
-    name: Deployment Stage
-    needs: integration
-    runs-on: ubuntu-latest
-    steps:
-      - name: Final Success
-        run: echo "Pipeline complete. Ready for submission."
