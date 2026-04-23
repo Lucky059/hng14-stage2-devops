@@ -1,28 +1,38 @@
+integration:
+    name: Integration Testing
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-#!/bin/bash
-set -e
+      - name: Resolve Missing Env File
+        run: |
+          mkdir -p api
+          touch api/.env
 
-echo "Checking API Health..."
-URL="http://localhost:8000/health"
-MAX_RETRIES=15
-COUNT=0
+      - name: Kill Existing Processes
+        run: |
+          sudo fuser -k 8000/tcp || true
+          docker stop $(docker ps -aq) || true
+          docker rm $(docker ps -aq) || true
+          docker network prune -f
 
-while [ $COUNT -lt $MAX_RETRIES ]; do
-  # Use -s (silent) and -w (output status code)
-  # We use || true to prevent the script from exiting on a connection failure (Exit 7)
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+      - name: Start Services
+        run: |
+          docker compose up -d --build
+          echo "Waiting for boot..."
+          sleep 15
 
-  if [ "$STATUS" -eq 200 ]; then
-    echo "✅ API is Healthy! (Status: $STATUS)"
-    exit 0
-  fi
+      - name: Check Startup Logs
+        # This will show us WHY the API is failing before the test runs
+        run: docker compose logs api
 
-  echo "⏳ Waiting for API... (Current Status: $STATUS) - Attempt $((COUNT+1))/$MAX_RETRIES"
-  sleep 5
-  COUNT=$((COUNT+1))
-done
+      - name: Run Integration Script
+        run: |
+          chmod +x scripts/integration-test.sh
+          ./scripts/integration-test.sh
 
-echo "❌ API failed healthcheck after $MAX_RETRIES attempts"
-# Dump logs so we can see why it never started
-docker compose -p hng_test logs api
-exit 1
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
