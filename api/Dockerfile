@@ -1,4 +1,4 @@
-i# STAGE 1: Builder
+# STAGE 1: Builder
 FROM python:3.11-slim-bookworm AS builder
 
 # Set shell for pipefail security
@@ -6,7 +6,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 WORKDIR /app
 
-# Pinning build tools to Bookworm stable versions for Hadolint
+# Pinning build tools to Bookworm stable versions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc=4:12.2.0-3 \
     python3-dev=3.11.2-1+b1 \
@@ -20,25 +20,23 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # STAGE 2: Final Production Image
 FROM python:3.11-slim-bookworm
 
-# Metadata for HNG
 LABEL maintainer="Ukweku Lucky"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/home/hng_user/.local/bin:$PATH"
 
-# Create non-root user (Security Requirement)
+# Create non-root user
 RUN groupadd -r hng_group && useradd -r -g hng_group -m hng_user
 
 WORKDIR /app
 
-# Install runtime curl for healthchecks (Version Pinned)
+# Install runtime curl (Version Pinned)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl=7.88.1-10+deb12u8 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy from builder
 COPY --from=builder /install /usr/local
 COPY --chown=hng_user:hng_group . .
 
@@ -46,7 +44,6 @@ USER hng_user
 
 EXPOSE 8000
 
-# Healthcheck ensures the rolling update works correctly
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
