@@ -1,13 +1,11 @@
-import pytest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
 from main import app
 
+# Initialize the TestClient
 client = TestClient(app)
 
 # Test 1: Health Check Endpoint
-
-
 def test_health_check():
     """Test that the health endpoint returns 200 and correct status"""
     # Mocking the redis ping to return True
@@ -21,8 +19,6 @@ def test_health_check():
         assert response.json()["status"] == "ok"
 
 # Test 2: Create Job Endpoint
-
-
 def test_create_job():
     """Test creating a job adds it to Redis and returns a job_id"""
     with patch("main.get_redis_client") as mock_redis:
@@ -41,8 +37,6 @@ def test_create_job():
         assert mock_instance.hset.called
 
 # Test 3: Get Job Status (Success Case)
-
-
 def test_get_job_status():
     """Test retrieving a job status from Redis"""
     with patch("main.get_redis_client") as mock_redis:
@@ -61,17 +55,17 @@ def test_get_job_status():
         assert response.json()["status"] == "completed"
 
 # Test 4: Get Job Status (Not Found Case)
-
-
-def test_get_job_not_found():
-    """Test behavior when a job ID does not exist in Redis"""
+def test_get_job_status_not_found():
+    """Test that a non-existent job ID returns a 404"""
     with patch("main.get_redis_client") as mock_redis:
         mock_instance = MagicMock()
         mock_redis.return_value = mock_instance
 
-        # Simulate Redis returning None for missing key
+        # Simulate Redis returning None (job doesn't exist)
         mock_instance.hget.return_value = None
 
-        response = client.get("/jobs/non-existent-id")
+        test_id = "non-existent-id"
+        response = client.get(f"/jobs/{test_id}")
+
         assert response.status_code == 404
         assert response.json()["detail"] == "Job not found"
