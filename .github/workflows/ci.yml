@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  lint-and-test:
+  lint-and-unit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,56 +15,44 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install Dependencies
-        run: |
-          pip install flake8 pytest pytest-cov httpx fakeredis
-          cd api && pip install -r requirements.txt
       - name: Run Lint
-        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        run: |
+          pip install flake8
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
       - name: Run Unit Tests
         run: |
-          export PYTHONPATH=$PYTHONPATH:$(pwd)/api
-          pytest api/tests/
+          cd api
+          pip install -r requirements.txt pytest pytest-cov httpx fakeredis
+          export PYTHONPATH=$PYTHONPATH:$(pwd)
+          pytest tests/
 
-  build-and-integration:
-    needs: lint-and-test
+  integration:
+    needs: lint-and-unit-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API Image
-        run: docker build -t hng-api:latest ./api
-
-      - name: Build Frontend & Worker
-        run: |
-          docker build -t hng-frontend:latest ./frontend
-          docker build -t hng-worker:latest ./worker
-
-      - name: Nuclear Cleanup
+      - name: Nuclear Port Cleanup
         run: |
           sudo fuser -k 8000/tcp || true
-          docker stop $(docker ps -aq) || true
-          docker rm $(docker ps -aq) || true
-          docker network prune -f
+          docker system prune -af
           mkdir -p api && touch api/.env
 
       - name: Start Services
         run: |
-          # Use a unique project name to avoid naming collisions
-          docker compose -p hng_test up -d
-          echo "Waiting for services to stabilize..."
+          docker compose -p hng_test up -d --build
+          echo "Waiting 20s for Uvicorn to initialize..."
           sleep 20
+
+      - name: Debug Startup
+        run: |
+          docker ps
+          docker logs hng-api-server
 
       - name: Run Integration Script
         run: |
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
-
-      - name: Debug Logs on Failure
-        if: failure()
-        run: |
-          docker compose -p hng_test logs api
-          docker compose -p hng_test ps
 
       - name: Cleanup
         if: always()
