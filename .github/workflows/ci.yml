@@ -95,25 +95,30 @@ jobs:
           mkdir -p api
           touch api/.env
 
-      - name: Free up Port 8000
-        # CRITICAL FIX: Kills any process (like ghost uvicorn) using port 8000
-        run: sudo fuser -k 8000/tcp || true
+      - name: Nuclear Port & Docker Cleanup
+        # Kills any process on 8000 and prunes the Docker environment
+        run: |
+          sudo fuser -k 8000/tcp || true
+          docker system prune -f
+          docker network prune -f
 
       - name: Start Services
         run: |
           export REDIS_HOST=redis
           export REDIS_PORT=6379
-          # force-recreate kills any existing containers from the same project
-          docker compose up -d --build --force-recreate
+          # --scale api=1 ensures only ONE api container is created
+          # -p hng_test provides a clean, unique project namespace
+          docker compose -p hng_test up -d --build --force-recreate --scale api=1
 
       - name: Run Integration Script
         run: |
+          # Ensure script is executable
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
 
       - name: Cleanup
         if: always()
-        run: docker compose down
+        run: docker compose -p hng_test down -v
 
   deploy:
     name: Deployment Stage
@@ -121,4 +126,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Final Success
-        run: echo "Pipeline complete. All HNG requirements met."
+        run: echo "Pipeline complete. Ready for submission."
