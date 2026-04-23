@@ -1,38 +1,38 @@
-integration:
-    name: Integration Testing
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+#!/bin/bash
 
-      - name: Resolve Missing Env File
-        run: |
-          mkdir -p api
-          touch api/.env
+# Do NOT use 'set -e' here because we want to handle 
+# connection failures manually in our loop.
 
-      - name: Kill Existing Processes
-        run: |
-          sudo fuser -k 8000/tcp || true
-          docker stop $(docker ps -aq) || true
-          docker rm $(docker ps -aq) || true
-          docker network prune -f
+echo "🚀 Starting API Healthcheck Probe..."
 
-      - name: Start Services
-        run: |
-          docker compose up -d --build
-          echo "Waiting for boot..."
-          sleep 15
+URL="http://localhost:8000/health"
+MAX_RETRIES=15
+COUNT=0
 
-      - name: Check Startup Logs
-        # This will show us WHY the API is failing before the test runs
-        run: docker compose logs api
+while [ $COUNT -lt $MAX_RETRIES ]; do
+  # Use curl to get the status code. 
+  # If the connection is refused, it will return '000'.
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
 
-      - name: Run Integration Script
-        run: |
-          chmod +x scripts/integration-test.sh
-          ./scripts/integration-test.sh
+  if [ "$STATUS" -eq 200 ]; then
+    echo "✅ [SUCCESS] API is Healthy and responding with 200 OK!"
+    exit 0
+  fi
 
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
+  echo "⏳ [WAITING] API is not ready yet (Status: $STATUS). Retrying in 5s... ($((COUNT+1))/$MAX_RETRIES)"
+  
+  sleep 5
+  COUNT=$((COUNT+1))
+done
+
+echo "❌ [FAILURE] API failed to become healthy after $MAX_RETRIES attempts."
+
+# Diagnostic: Check if the container is even running
+echo "--- Docker Container Status ---"
+docker ps -a | grep api || echo "API container not found!"
+
+# Diagnostic: Show the last few lines of the API logs to see why it's failing
+echo "--- API Container Logs ---"
+docker logs hng-api-server --tail 20 || echo "Could not fetch logs."
+
+exit 1
