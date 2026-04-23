@@ -1,10 +1,8 @@
 
-name: HNG Stage 2 DevOps Pipeline
+name: HNG Stage 2 Final Submission
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
 
 jobs:
@@ -14,79 +12,84 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Run Flake8
-        run: |
-          pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      - run: pip install flake8 && flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-  # 2. TEST (Needs Lint)
+  # 2. TEST
   test:
     name: Testing Stage
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Unit Tests
-        run: |
-          cd api
-          pip install -r requirements.txt pytest httpx fakeredis
+      - run: |
+          cd api && pip install -r requirements.txt pytest httpx fakeredis
           export PYTHONPATH=$PYTHONPATH:$(pwd)
           pytest tests/
 
-  # 3. BUILD (Needs Test)
+  # 3. BUILD
   build:
     name: Build Stage
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker Image
-        run: docker build -t hng-api:latest ./api
+      - name: Build and Save Image
+        run: |
+          docker build -t hng-api:latest ./api
+          docker save hng-api:latest > hng-api.tar
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hng-api-image
+          path: hng-api.tar
 
-  # 4. SECURITY SCAN (Needs Build)
+  # 4. SECURITY SCAN
   security_scan:
     name: Security Scan Stage
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Download Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hng-api-image
+      - name: Load Docker Image
+        run: docker load < hng-api.tar
       - name: Run Trivy Scan
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'hng-api:latest'
           format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: 0 # Change to 1 if you want to fail on vulnerabilities
+          exit-code: 0 
 
-  # 5. INTEGRATION TEST (Needs Security Scan)
+  # 5. INTEGRATION TEST
   integration_test:
     name: Integration Testing Stage
     needs: security_scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup and Start Services
+      - name: Download Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hng-api-image
+      - name: Load Docker Image
+        run: docker load < hng-api.tar
+      - name: Start Services
         run: |
           sudo fuser -k 8000/tcp || true
           docker compose -p hng_test up -d --build
-          echo "Waiting for API stabilization..."
           sleep 20
-      - name: Run Healthcheck Script
+      - name: Run Script
         run: |
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
-      - name: Check Logs on Failure
-        if: failure()
-        run: docker logs hng-api-server
 
-  # 6. DEPLOY (Needs Integration Test)
+  # 6. DEPLOY
   deploy:
     name: Deployment Stage
     needs: integration_test
     runs-on: ubuntu-latest
     steps:
-      - name: Deployment Success
-        run: echo "All stages complete. System deployed successfully."
+      - name: Final Success
+        run: echo "Stage 2 Requirements Satisfied."
