@@ -5,6 +5,7 @@ from main import app
 # Initialize the TestClient
 client = TestClient(app)
 
+
 # Test 1: Health Check Endpoint
 def test_health_check():
     """Test that the health endpoint returns 200 and correct status"""
@@ -17,6 +18,7 @@ def test_health_check():
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
 
 # Test 2: Create Job Endpoint
 def test_create_job():
@@ -36,6 +38,7 @@ def test_create_job():
         assert mock_instance.lpush.called
         assert mock_instance.hset.called
 
+
 # Test 3: Get Job Status (Success Case)
 def test_get_job_status():
     """Test retrieving a job status from Redis"""
@@ -53,6 +56,7 @@ def test_get_job_status():
         assert response.status_code == 200
         assert response.json()["job_id"] == test_id
         assert response.json()["status"] == "completed"
+
 
 # Test 4: Get Job Status (Not Found Case)
 def test_get_job_status_not_found():
