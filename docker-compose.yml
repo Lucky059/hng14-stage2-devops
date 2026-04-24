@@ -4,8 +4,10 @@ services:
     build: ./api
     image: hng-api:latest
     restart: always
+    ports:
+      - "8000:8000"
     environment:
-      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_HOST=redis
     deploy:
       resources:
         limits:
@@ -27,7 +29,7 @@ services:
     image: hng-worker:latest
     restart: always
     environment:
-      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_HOST=redis
     deploy:
       resources:
         limits:
