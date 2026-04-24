@@ -1,5 +1,4 @@
-
-# STAGE 1: Build (The 'AS builder' is critical for the grader)
+# STAGE 1: Build
 FROM node:18-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
@@ -10,19 +9,22 @@ COPY . .
 FROM node:18-alpine
 WORKDIR /app
 
-# Satisfies fe_named_nonroot_user
+# 1. Create the group and user FIRST (Alpine syntax)
+# -S creates a system user/group
 RUN addgroup -S hnggroup && adduser -S hnguser -G hnggroup
 
-# Satisfies fe_multi_stage by copying from the builder stage
+# 2. Copy the files from the builder stage
 COPY --from=builder /app /app
 
-# Ensure ownership for the non-root user
+# 3. NOW you can change ownership because the user exists
 RUN chown -R hnguser:hnguser /app
+
+# 4. Switch to the non-root user
 USER hnguser
 
 EXPOSE 3000
 
-# Satisfies fe_healthcheck
+# Healthcheck using wget (Alpine doesn't have curl by default)
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
 
