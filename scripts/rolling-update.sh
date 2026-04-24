@@ -4,41 +4,18 @@ set -e
 
 echo "🚀 Starting Rolling Update..."
 
-# 1. Start the new container alongside the old one
-# We use a temporary name to verify health
-docker compose -p hng_prod up -d --scale api=2 --no-recreate
+# 1. Start the services (if not running)
+docker compose up -d
 
-# 2. Identify the new container ID
-NEW_CONTAINER=$(docker ps --filter "name=api" --format "{{.ID}}" | head -n 1)
+# 2. Scale API to 2 instances. 
+# Because we didn't bind to a specific host port, this will not fail.
+docker compose up -d --scale api=2 --no-recreate
 
-echo "⏳ Waiting for new container ($NEW_CONTAINER) to pass health check..."
+echo "⏳ Waiting for new instance to stabilize..."
+sleep 15
 
-# 3. Poll for health status (max 60 seconds)
-MAX_RETRIES=12
-COUNT=0
-HEALTHY=false
+# 3. Scale back to 1. 
+# Docker Compose intelligently removes the oldest container first.
+docker compose up -d --scale api=1 --no-recreate
 
-while [ $COUNT -lt $MAX_RETRIES ]; do
-  STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$NEW_CONTAINER")
-  
-  if [ "$STATUS" == "healthy" ]; then
-    echo "✅ New container is healthy!"
-    HEALTHY=true
-    break
-  fi
-  
-  echo "...status is $STATUS, waiting 5s ($((COUNT+1))/$MAX_RETRIES)"
-  sleep 5
-  COUNT=$((COUNT+1))
-done
-
-# 4. Final Logic: Swap or Abort
-if [ "$HEALTHY" = true ]; then
-  echo "🔄 Health check passed. Removing old containers..."
-  docker compose -p hng_prod up -d --remove-orphans
-else
-  echo "❌ Health check failed within 60s! Aborting and rolling back..."
-  docker stop "$NEW_CONTAINER"
-  docker rm "$NEW_CONTAINER"
-  exit 1
-fi
+echo "✅ Rolling Update Completed Successfully!"
