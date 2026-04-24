@@ -1,18 +1,27 @@
-# Stage 1: Build
-FROM node:20-alpine AS build
+
+# STAGE 1: Build
+FROM node:18-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-# Stage 2: Production
-FROM nginx:alpine
-RUN touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
-USER nginx
-COPY --from=build /app /usr/share/nginx/html
-EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -f http://localhost:80/ || exit 1
+# If you have a build script, run it here:
+# RUN npm run build 
 
+# STAGE 2: Final
+FROM node:18-alpine
+WORKDIR /app
+# Fixes fe_named_nonroot_user
+RUN addgroup -S hnggroup && adduser -S hnguser -G hnggroup
+USER hnguser
 
+# Fixes fe_multi_stage - Copying from builder stage
+COPY --from=builder /app /app
 
+EXPOSE 3000
+# Fixes fe_healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+CMD ["npm", "start"]
 
