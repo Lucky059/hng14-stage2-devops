@@ -2,20 +2,16 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Rolling Update..."
+echo "🚀 Starting Production Rolling Update..."
 
-# 1. Start the services (if not running)
-docker compose up -d
+# Force recreate ensures that the old container is stopped 
+# and the port is freed before the new one starts.
+docker compose up -d --force-recreate --no-deps api worker frontend
 
-# 2. Scale API to 2 instances. 
-# Because we didn't bind to a specific host port, this will not fail.
-docker compose up -d --scale api=2 --no-recreate
+echo "⏳ Waiting for stabilization..."
+sleep 10
 
-echo "⏳ Waiting for new instance to stabilize..."
-sleep 15
+# Final check
+docker compose ps
 
-# 3. Scale back to 1. 
-# Docker Compose intelligently removes the oldest container first.
-docker compose up -d --scale api=1 --no-recreate
-
-echo "✅ Rolling Update Completed Successfully!"
+echo "✅ Deployment Successful!"
