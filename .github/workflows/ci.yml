@@ -8,99 +8,105 @@ on:
     branches: [ main ]
 
 jobs:
+  # STAGE 1: LINTING
   lint:
     name: 1. Linting Stage
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 1.1 Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Lint Python (Flake8)
+      - name: 1.2 Lint Python (Flake8)
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Lint JavaScript (ESLint)
+      - name: 1.3 Lint JavaScript (ESLint)
         run: |
           cd frontend
           npm install
-          npm run lint || echo "Linting passed with warnings"
+          npm run lint
 
-      - name: Lint Dockerfiles (Hadolint)
+      - name: 1.4 Lint Dockerfiles (Hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
           recursive: true
           ignore: DL3008
 
+  # STAGE 2: UNIT TESTING
   test:
     name: 2. Testing Stage
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 2.1 Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 2.2 Set up Python Environment
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Dependencies
+      - name: 2.3 Install Testing Dependencies
         run: |
           cd api
           pip install -r requirements.txt pytest pytest-cov httpx fakeredis pytest-mock
 
-      - name: Run Pytest with Mocked Redis
+      - name: 2.4 Run Pytest with Mocked Redis
         run: |
           cd api
           export PYTHONPATH=$PYTHONPATH:$(pwd)
           pytest --cov=./ --cov-report=xml tests/
 
-      - name: Upload Coverage Artifact
+      - name: 2.5 Upload Coverage Results
         uses: actions/upload-artifact@v4
         with:
           name: python-coverage
           path: api/coverage.xml
 
+  # STAGE 3: DOCKER BUILD & CACHE
   build:
     name: 3. Build Stage
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 3.1 Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
+      - name: 3.2 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Tag with SHA
+      - name: 3.3 Build and Tag Images (SHA & Latest)
         run: |
+          # Build with dual tagging for traceability
           docker build -t hng-api:latest -t hng-api:${{ github.sha }} ./api
           docker build -t hng-worker:latest -t hng-worker:${{ github.sha }} ./worker
           docker build -t hng-frontend:latest -t hng-frontend:${{ github.sha }} ./frontend
+          # Save images for security and integration stages
           docker save hng-api:latest hng-worker:latest hng-frontend:latest > full_stack.tar
 
-      - name: Upload Images Artifact
+      - name: 3.4 Upload Docker Images Artifact
         uses: actions/upload-artifact@v4
         with:
           name: full-stack-images
           path: full_stack.tar
 
+  # STAGE 4: SECURITY ANALYSIS
   security:
     name: 4. Security Scan Stage
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download Images
+      - name: 4.1 Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: full-stack-images
 
-      - name: Load Docker Images
+      - name: 4.2 Load Docker Images
         run: docker load < full_stack.tar
 
-      - name: Run Trivy Scan
+      - name: 4.3 Scan API for Critical Vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'hng-api:latest'
@@ -109,50 +115,52 @@ jobs:
           severity: 'CRITICAL'
           exit-code: 0
 
-      - name: Upload Security Artifact
+      - name: 4.4 Upload SARIF Report
         uses: actions/upload-artifact@v4
         with:
           name: trivy-results
           path: trivy-results.sarif
 
+  # STAGE 5: INTEGRATION TESTING
   integration:
     name: 5. Integration Stage
     needs: security
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 5.1 Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Download Images
+      - name: 5.2 Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           name: full-stack-images
 
-      - name: Spin up Stack
+      - name: 5.3 Spin up Environment via Docker Compose
         run: |
           docker load < full_stack.tar
           docker compose up -d
           sleep 20
 
-      - name: Run Integration Script
+      - name: 5.4 Execute Integration Health Script
         run: |
           chmod +x scripts/integration-test.sh
           ./scripts/integration-test.sh
 
-      - name: Teardown Stack
+      - name: 5.5 Final Environment Teardown
         if: always()
         run: docker compose down -v
 
+  # STAGE 6: DEPLOYMENT
   deploy:
     name: 6. Deployment Stage
     if: github.ref == 'refs/heads/main'
     needs: integration
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 6.1 Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Run Rolling Update
+      - name: 6.2 Execute Scripted Rolling Update
         run: |
           chmod +x scripts/rolling-update.sh
           ./scripts/rolling-update.sh
