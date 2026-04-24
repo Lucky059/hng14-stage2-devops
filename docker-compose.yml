@@ -14,7 +14,7 @@ services:
   api:
     build: ./api
     image: hng-api:latest
-    container_name: hng-api-server
+    
     ports:
       - "8000:8000"
     environment:
@@ -47,7 +47,7 @@ services:
   worker:
     build: ./worker
     image: hng-worker:latest
-    container_name: hng-worker
+    
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
