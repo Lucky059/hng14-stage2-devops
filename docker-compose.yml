@@ -1,63 +1,43 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: hng-redis
-    command: redis-server --requirepass hngpassword
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "hngpassword", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - hng_network
-
   api:
-    build: ./api
     image: hng-api:latest
-    
     ports:
-      - "8000:8000"
+      - "8000" 
     environment:
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=hngpassword
     depends_on:
       redis:
         condition: service_healthy
     networks:
-      - hng_network
-    deploy:
-      replicas: 1
-      resources:
-        limits:
-          cpus: '0.50'
-          memory: 512M
-
-  frontend:
-    build: ./frontend
-    image: hng-frontend:latest
-    container_name: hng-frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - api
-    networks:
-      - hng_network
+      - hng-network
 
   worker:
-    build: ./worker
     image: hng-worker:latest
-    
     environment:
       - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=hngpassword
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
-      - hng_network
+      - hng-network
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hng-network
+
+  frontend:
+    image: hng-frontend:latest
+    ports:
+      - "3000:3000"
+    networks:
+      - hng-network
 
 networks:
-  hng_network:
-    name: hng_network
+  hng-network:
     driver: bridge
